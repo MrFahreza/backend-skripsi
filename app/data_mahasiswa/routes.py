@@ -58,10 +58,20 @@ def update_mahasiswa(current_user_id, npm):
 @token_required
 def delete_mahasiswa(current_user_id, npm):
     mahasiswa_collection = current_app.db.mahasiswa
+    penilaian_collection = current_app.db.penilaian_mahasiswa # Siapkan koleksi penilaian
+
+    # 1. Hapus data dari koleksi utama 'mahasiswa'
     result = mahasiswa_collection.delete_one({"npm": npm})
+
     if result.deleted_count == 0:
         return jsonify({"code": 404, "message": "Data mahasiswa tidak ditemukan"}), 404
-    return jsonify({"code": 200, "message": "Data mahasiswa berhasil dihapus"}), 200
+    
+    # 2. MODIFIKASI: Jika berhasil, hapus juga data penilaian terkait
+    # Perintah ini akan menghapus dokumen dengan npm yang sama di koleksi penilaian.
+    # Jika tidak ada data, perintah ini tidak akan melakukan apa-apa (aman).
+    penilaian_collection.delete_one({"npm": npm})
+    
+    return jsonify({"code": 200, "message": "Data mahasiswa dan data penilaian terkait berhasil dihapus"}), 200
 
 # --- Endpoint untuk Impor dari Excel ---
 @mahasiswa_bp.route('/import', methods=['POST'])
