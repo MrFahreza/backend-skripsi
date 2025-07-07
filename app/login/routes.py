@@ -9,10 +9,9 @@ from datetime import datetime, timedelta, timezone
 from ..utils.decorators import token_required
 from ..utils.password_utils import generate_new_password, send_new_password_email
 
-
+# --- Endpoint untuk melakukan proses login ---
 @login_bp.route('/login', methods=['POST'])
 def login():
-    # ... (logika untuk validasi data request tetap sama) ...
     data = request.get_json()
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({"code": 400, "message": "Username dan password dibutuhkan"}), 400
@@ -28,7 +27,7 @@ def login():
     if not check_password_hash(admin_in_db['password'], password):
         return jsonify({"code": 401, "message": "Password salah"}), 401
 
-    # --- INI BAGIAN BARU: BUAT TOKEN JIKA SUKSES ---
+    # --- Bagian untuk membuat token jika login berhasil ---
     try:
         # Siapkan payload untuk token
         payload = {
@@ -54,55 +53,34 @@ def login():
         return jsonify({"code": 500, "message": f"Gagal membuat token: {e}"}), 500
 
 
-# --- CONTOH ENDPOINT TERPROTEKSI ---
-@login_bp.route('/profile')
-@token_required
-def profile(current_user):
-    # 'current_user' didapat dari decorator
-    return jsonify({
-        "code": 200,
-        "message": f"Selamat datang di halaman profil!",
-        "user_id": current_user
-    })
-
-# --- ENDPOINT BARU UNTUK LUPA PASSWORD ---
+# --- Endpoint untuk melakukan reset password ---
 @login_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     data = request.get_json()
     if not data or not data.get('username'):
         return jsonify({"code": 400, "message": "Username dibutuhkan"}), 400
-
     username = data['username']
     admins_collection = current_app.db.admins
     admin_user = admins_collection.find_one({"username": username})
-
     if not admin_user:
         return jsonify({"code": 404, "message": "Username tidak ditemukan"}), 404
-
-    # 1. Buat password baru
     new_plain_password = generate_new_password()
     new_hashed_password = generate_password_hash(new_plain_password)
-
-    # 2. Update password di database
     admins_collection.update_one(
         {"_id": admin_user["_id"]},
         {"$set": {"password": new_hashed_password}}
     )
-
-    # 3. Kirim email
     mail_config = {
         "MAIL_SERVER": current_app.config['MAIL_SERVER'],
         "MAIL_PORT": current_app.config['MAIL_PORT'],
         "MAIL_USERNAME": current_app.config['MAIL_USERNAME'],
         "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
     }
-    
     email_sent = send_new_password_email(
         admin_user['email'], 
         new_plain_password, 
         mail_config
     )
-
     if email_sent:
         return jsonify({
             "code": 200,
@@ -114,7 +92,7 @@ def forgot_password():
             "message": "Gagal mengirim email, silakan coba lagi."
         }), 500
 
-# --- ENDPOINT BARU UNTUK UBAH PASSWORD ---
+# --- Endpoint untuk melakukan perubahan password ---
 @login_bp.route('/change-password', methods=['POST'])
 @token_required
 def change_password(current_user_id):
@@ -126,18 +104,12 @@ def change_password(current_user_id):
         return jsonify({"code": 400, "message": "Password lama dan baru dibutuhkan"}), 400
 
     admins_collection = current_app.db.admins
-    # Cari admin berdasarkan ID dari token
     admin_user = admins_collection.find_one({"_id": ObjectId(current_user_id)})
 
     if not admin_user:
-        # Seharusnya tidak terjadi jika token valid, tapi sebagai pengaman
         return jsonify({"code": 404, "message": "User tidak ditemukan"}), 404
-
-    # 1. Verifikasi password lama
     if not check_password_hash(admin_user['password'], old_password):
         return jsonify({"code": 401, "message": "Password lama salah"}), 401
-
-    # 2. Jika password lama benar, hash dan update password baru
     new_hashed_password = generate_password_hash(new_password)
     admins_collection.update_one(
         {"_id": ObjectId(current_user_id)},
@@ -146,31 +118,23 @@ def change_password(current_user_id):
 
     return jsonify({"code": 200, "message": "Password berhasil diubah"}), 200
 
-# --- ENDPOINT BARU UNTUK UBAH EMAIL ---
+# --- Endpoint untuk melakukan perubahan email admin ---
 @login_bp.route('/change-email', methods=['POST'])
 @token_required
 def change_email(current_user_id):
     data = request.get_json()
     new_email = data.get('new_email')
-    password = data.get('password') # Meminta password untuk konfirmasi
-
+    password = data.get('password')
     if not new_email or not password:
         return jsonify({"code": 400, "message": "Email baru dan password dibutuhkan"}), 400
-
     admins_collection = current_app.db.admins
     admin_user = admins_collection.find_one({"_id": ObjectId(current_user_id)})
-
     if not admin_user:
         return jsonify({"code": 404, "message": "User tidak ditemukan"}), 404
-
-    # 1. Verifikasi password saat ini untuk keamanan
     if not check_password_hash(admin_user['password'], password):
         return jsonify({"code": 401, "message": "Password salah, perubahan email dibatalkan"}), 401
-
-    # 2. Jika password benar, update email baru
     admins_collection.update_one(
         {"_id": ObjectId(current_user_id)},
         {"$set": {"email": new_email}}
     )
-
     return jsonify({"code": 200, "message": f"Email berhasil diubah menjadi {new_email}"}), 200

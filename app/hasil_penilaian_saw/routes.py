@@ -7,9 +7,9 @@ import numpy as np
 
 # --- Konfigurasi Bobot Kriteria ---
 BOBOT_SAW = {
-    "c1": 0.25, # Keaktifan Organisasi
-    "c2": 0.35, # IPK
-    "c3": 0.40  # Persentase Kehadiran
+    "w1": 0.25, # Keaktifan Organisasi
+    "w2": 0.35, # IPK
+    "w3": 0.40  # Persentase Kehadiran
 }
 
 # --- Helper Function untuk Rating Kecocokan ---
@@ -67,7 +67,7 @@ def calculate_saw(current_user_id):
         })
     
     # --- Tahap 2: Normalisasi Matriks ---
-    # Karena semua kriteria adalah benefit, kita cari nilai MAX dari setiap kolom
+    # Karena semua kriteria adalah benefit, cari nilai MAX dari setiap kolom
     max_c1 = max(item['c1_rated'] for item in matriks_x)
     max_c2 = max(item['c2_rated'] for item in matriks_x)
     max_c3 = max(item['c3_rated'] for item in matriks_x)
@@ -86,27 +86,22 @@ def calculate_saw(current_user_id):
     hasil_akhir = []
     for item in matriks_r:
         skor_akhir = (
-            (item['r1_normalized'] * BOBOT_SAW['c1']) +
-            (item['r2_normalized'] * BOBOT_SAW['c2']) +
-            (item['r3_normalized'] * BOBOT_SAW['c3'])
+            (item['r1_normalized'] * BOBOT_SAW['w1']) +
+            (item['r2_normalized'] * BOBOT_SAW['w2']) +
+            (item['r3_normalized'] * BOBOT_SAW['w3'])
         )
         hasil_akhir.append({
             "npm": item['npm'],
             "nama": item['nama'],
             "skor_akhir_saw": round(skor_akhir, 4)
         })
-    
-    # Urutkan hasil dari yang tertinggi
     hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
     
     # --- Tahap 4: Simpan Hasil ke Database ---
     hasil_collection = current_app.db.hasil_penilaian_saw
-    # Hapus hasil perhitungan lama sebelum menyimpan yang baru
     hasil_collection.delete_many({})
-    # Simpan hasil perhitungan yang baru
     if hasil_akhir_sorted:
         hasil_collection.insert_many(hasil_akhir_sorted)
-
     return jsonify({"code": 200, "message": "Perhitungan SAW berhasil dan hasil telah disimpan."}), 200
 
 # --- Endpoint untuk Melihat Hasil Perhitungan SAW ---
@@ -114,10 +109,7 @@ def calculate_saw(current_user_id):
 @token_required
 def get_saw_results(current_user_id):
     hasil_collection = current_app.db.hasil_penilaian_saw
-    # Ambil hasil yang sudah diurutkan dari database (field _id diabaikan)
     results = list(hasil_collection.find({}, {'_id': 0}))
-
     if not results:
         return jsonify({"code": 404, "message": "Hasil perhitungan belum ada. Silakan picu perhitungan terlebih dahulu."}), 404
-        
     return jsonify({"code": 200, "data": results}), 200

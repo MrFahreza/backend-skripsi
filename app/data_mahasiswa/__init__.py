@@ -1,5 +1,3 @@
-# backend/app/data_mahasiswa/__init__.py
-
 from flask import Blueprint
 
 # Membuat Blueprint dengan prefix URL /mahasiswa

@@ -28,34 +28,29 @@ def add_penilaian(current_user_id):
 
     if not npm:
         return jsonify({"code": 400, "message": "NPM mahasiswa dibutuhkan"}), 400
-
     mahasiswa_collection = current_app.db.mahasiswa
     penilaian_collection = current_app.db.penilaian_mahasiswa
-
-    # 1. Validasi: Cek apakah mahasiswa ada di data_mahasiswa
     mahasiswa_data = mahasiswa_collection.find_one({"npm": npm})
     if not mahasiswa_data:
         return jsonify({"code": 404, "message": f"Mahasiswa dengan NPM {npm} tidak ditemukan"}), 404
-
-    # 2. Validasi: Cek apakah mahasiswa sudah punya data penilaian
     if penilaian_collection.find_one({"npm": npm}):
         return jsonify({"code": 409, "message": f"Mahasiswa dengan NPM {npm} sudah memiliki data penilaian"}), 409
 
-    # 3. Hitung skor keaktifan
+    # Hitung skor keaktifan
     data['keaktifan_organisasi'] = _calculate_keaktifan(data)
     
     now = datetime.now(timezone.utc)
     
-    # 4. Siapkan dokumen untuk disimpan
+    # Siapkan dokumen untuk disimpan
     penilaian_doc = {
         "npm": npm,
-        "nama": mahasiswa_data['nama'], # Ambil dari data_mahasiswa
-        "semester": mahasiswa_data['semester'], # Ambil dari data_mahasiswa
+        "nama": mahasiswa_data['nama'],
+        "semester": mahasiswa_data['semester'],
         "jabatan_struktur": data.get('jabatan_struktur'),
         "keterlibatan_program_kerja": data.get('keterlibatan_program_kerja'),
         "penilaian_kinerja": data.get('penilaian_kinerja'),
         "keikutsertaan_lomba": data.get('keikutsertaan_lomba'),
-        "keaktifan_organisasi": data['keaktifan_organisasi'], # Hasil perhitungan
+        "keaktifan_organisasi": data['keaktifan_organisasi'],
         "ipk": data.get('ipk'),
         "persentase_kehadiran": data.get('persentase_kehadiran'),
         "created_at": now,
@@ -81,16 +76,10 @@ def get_all_penilaian(current_user_id):
 def update_penilaian(current_user_id, npm):
     data = request.get_json()
     penilaian_collection = current_app.db.penilaian_mahasiswa
-
-    # Ambil data lama untuk digabungkan dengan data baru
     existing_data = penilaian_collection.find_one({"npm": npm})
     if not existing_data:
         return jsonify({"code": 404, "message": "Data penilaian tidak ditemukan"}), 404
-    
-    # Gabungkan data lama dengan data baru dari request
     updated_data = {**existing_data, **data}
-    
-    # Hitung ulang skor keaktifan jika ada perubahan pada komponennya
     data['keaktifan_organisasi'] = _calculate_keaktifan(updated_data)
     data['updated_at'] = datetime.now(timezone.utc)
 
@@ -113,36 +102,22 @@ def delete_penilaian(current_user_id, npm):
 def import_penilaian_from_excel(current_user_id):
     file = request.files.get('file')
     if not file: return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"})
-
     try:
         df = pd.read_excel(file, dtype={'npm': str})
         mahasiswa_collection = current_app.db.mahasiswa
         penilaian_collection = current_app.db.penilaian_mahasiswa
-        
-        # Ambil semua data mahasiswa untuk sinkronisasi cepat
         all_mahasiswa = {m['npm']: m for m in mahasiswa_collection.find({})}
-        
         operations = []
         now = datetime.now(timezone.utc)
-        
         for index, row in df.iterrows():
             npm = row.get('npm')
-            
-            # Lewati baris jika mahasiswa tidak ditemukan di data master
             if npm not in all_mahasiswa:
                 continue
-
             mahasiswa_data = all_mahasiswa[npm]
             doc = row.to_dict()
-            
-            # Hitung skor keaktifan
             doc['keaktifan_organisasi'] = _calculate_keaktifan(doc)
-            
-            # Tambahkan data yang disinkronkan
             doc['nama'] = mahasiswa_data['nama']
             doc['semester'] = mahasiswa_data['semester']
-            
-            # Siapkan operasi upsert
             operations.append(
                 UpdateOne(
                     {"npm": npm},
