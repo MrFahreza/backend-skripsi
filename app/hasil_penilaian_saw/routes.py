@@ -1,8 +1,9 @@
-# backend/app/hasil_penilaian_saw/routes.py
-
-from flask import jsonify, current_app
+from flask import jsonify, current_app, send_file
+from io import BytesIO
+import pandas as pd
 from . import saw_bp
 from ..utils.decorators import token_required
+from ..utils.email_utils import send_saw_warning_email
 import numpy as np
 
 # --- Konfigurasi Bobot Kriteria ---
@@ -43,11 +44,13 @@ def _get_rating(c1, c2, c3):
 @token_required
 def calculate_saw(current_user_id):
     penilaian_collection = current_app.db.penilaian_mahasiswa
+    mahasiswa_collection = current_app.db.data_mahasiswa
     
     # 1. Ambil semua data penilaian yang ada
     all_penilaian = list(penilaian_collection.find({}))
     if not all_penilaian:
         return jsonify({"code": 404, "message": "Tidak ada data penilaian untuk dihitung"}), 404
+    student_emails = {m['npm']: m['email'] for m in mahasiswa_collection.find({}, {'npm': 1, 'email': 1})}
 
     # --- Tahap 1: Membuat Matriks Keputusan (X) dengan Rating Kecocokan ---
     matriks_x = []
@@ -84,20 +87,42 @@ def calculate_saw(current_user_id):
 
     # --- Tahap 3: Perangkingan ---
     hasil_akhir = []
-    for item in matriks_r:
+    mail_config = {
+        "MAIL_SERVER": current_app.config['MAIL_SERVER'],
+        "MAIL_PORT": current_app.config['MAIL_PORT'],
+        "MAIL_USERNAME": current_app.config['MAIL_USERNAME'],
+        "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
+    }
+
+    for i, item_r in enumerate(matriks_r):
         skor_akhir = (
-            (item['r1_normalized'] * BOBOT_SAW['w1']) +
-            (item['r2_normalized'] * BOBOT_SAW['w2']) +
-            (item['r3_normalized'] * BOBOT_SAW['w3'])
+            (item_r['r1_normalized'] * BOBOT_SAW['w1']) +
+            (item_r['r2_normalized'] * BOBOT_SAW['w2']) +
+            (item_r['r3_normalized'] * BOBOT_SAW['w3'])
         )
+        
+        status = "Standar Terpenuhi"
+        if skor_akhir < 1:
+            status = "Perlu Tindakan dan Peringatan"
+            kriteria_lemah = []
+            item_x = matriks_x[i]
+            if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
+            if item_x['c2_rated'] <= 2: kriteria_lemah.append("IPK")
+            if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
+            if kriteria_lemah:
+                student_email = student_emails.get(item_r['npm'])
+                if student_email:
+                    send_saw_warning_email(student_email, item_r['nama'], kriteria_lemah, mail_config)
+
         hasil_akhir.append({
-            "npm": item['npm'],
-            "nama": item['nama'],
-            "skor_akhir_saw": round(skor_akhir, 4)
+            "npm": item_r['npm'],
+            "nama": item_r['nama'],
+            "skor_akhir_saw": round(skor_akhir, 4),
+            "status": status
         })
-    hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
     
     # --- Tahap 4: Simpan Hasil ke Database ---
+    hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
     hasil_collection = current_app.db.hasil_penilaian_saw
     hasil_collection.delete_many({})
     if hasil_akhir_sorted:
@@ -113,3 +138,23 @@ def get_saw_results(current_user_id):
     if not results:
         return jsonify({"code": 404, "message": "Hasil perhitungan belum ada. Silakan picu perhitungan terlebih dahulu."}), 404
     return jsonify({"code": 200, "data": results}), 200
+
+# --- Endpoint untuk export hasil perhitungan kedalam file excel ---
+@saw_bp.route('/export', methods=['GET'])
+@token_required
+def export_saw_results(current_user_id):
+    hasil_collection = current_app.db.hasil_penilaian_saw
+    results = list(hasil_collection.find({}, {'_id': 0}))
+    if not results:
+        return jsonify({"code": 404, "message": "Tidak ada data hasil perhitungan untuk diekspor."}), 404
+    df = pd.DataFrame(results)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Hasil_SAW')
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='hasil_penilaian_saw.xlsx'
+    )

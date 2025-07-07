@@ -76,6 +76,7 @@ def forgot_password():
         "MAIL_USERNAME": current_app.config['MAIL_USERNAME'],
         "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
     }
+    print(f"Mencoba mengirim password baru ke {admin_user['email']}...")
     email_sent = send_new_password_email(
         admin_user['email'], 
         new_plain_password, 
