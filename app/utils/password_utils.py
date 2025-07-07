@@ -7,7 +7,6 @@ from email.mime.text import MIMEText
 
 def generate_new_password(length=12):
     """Menghasilkan password acak yang aman."""
-    # UBAH BARIS INI: Hanya gunakan huruf besar dan angka
     characters = string.ascii_uppercase + string.digits
     new_password = ''.join(random.choice(characters) for i in range(length))
     return new_password

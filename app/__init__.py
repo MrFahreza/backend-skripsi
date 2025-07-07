@@ -1,5 +1,3 @@
-# backend/app/__init__.py
-
 import os
 from flask import Flask
 from pymongo import MongoClient
@@ -11,6 +9,7 @@ def create_app():
 
     # --- Muat Konfigurasi ---
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+
     # Muat konfigurasi email dari .env
     app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
     app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT'))
@@ -26,7 +25,6 @@ def create_app():
     from .login import login_bp
     app.register_blueprint(login_bp)
 
-    # DAFTARKAN BLUEPRINT BARU DI SINI
     from .data_mahasiswa import mahasiswa_bp
     app.register_blueprint(mahasiswa_bp)
 

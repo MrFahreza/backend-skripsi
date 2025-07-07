@@ -14,7 +14,6 @@ admins_collection = db['admins']
 
 admin_username = "admin"
 admin_password = "admin"
-# TAMBAHKAN EMAIL DI SINI
 admin_email = "azerhafikzir@gmail.com" 
 
 if admins_collection.find_one({'username': admin_username}):
@@ -25,7 +24,7 @@ else:
     admin_document = {
         "username": admin_username,
         "password": hashed_password,
-        "email": admin_email  # Tambahkan field email
+        "email": admin_email
     }
     
     admins_collection.insert_one(admin_document)
