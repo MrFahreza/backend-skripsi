@@ -33,4 +33,7 @@ def create_app():
     from .penilaian_mahasiswa import penilaian_bp
     app.register_blueprint(penilaian_bp)
 
+    from .hasil_penilaian_saw import saw_bp
+    app.register_blueprint(saw_bp)
+
     return app
