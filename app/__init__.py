@@ -26,4 +26,8 @@ def create_app():
     from .login import login_bp
     app.register_blueprint(login_bp)
 
+    # DAFTARKAN BLUEPRINT BARU DI SINI
+    from .data_mahasiswa import mahasiswa_bp
+    app.register_blueprint(mahasiswa_bp)
+
     return app
