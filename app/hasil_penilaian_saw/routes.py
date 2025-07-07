@@ -102,7 +102,7 @@ def calculate_saw(current_user_id):
         )
         
         status = "Standar Terpenuhi"
-        if skor_akhir < 1:
+        if skor_akhir < 0.7:
             status = "Perlu Tindakan dan Peringatan"
             kriteria_lemah = []
             item_x = matriks_x[i]
