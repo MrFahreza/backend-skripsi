@@ -39,7 +39,7 @@ def _get_rating(c1, c2, c3):
     
     return r1, r2, r3
 
-# --- Endpoint untuk Melihat Perhitungan Menggunakan Metode SAW ---
+# --- Endpoint Untuk Melakukan Perhitungan Menggunakan Metode SAW ---
 @saw_bp.route('/calculate', methods=['POST'])
 @token_required
 def calculate_saw(current_user_id):
@@ -131,7 +131,6 @@ def calculate_saw(current_user_id):
     hasil_collection.delete_many({})
     if hasil_akhir_sorted:
         hasil_collection.insert_many(hasil_akhir_sorted)
-        
     return jsonify({"code": 200, "message": "Perhitungan SAW berhasil dan hasil telah disimpan."}), 200
 
 
