@@ -102,18 +102,32 @@ def delete_penilaian(current_user_id, npm):
 def import_penilaian_from_excel(current_user_id):
     file = request.files.get('file')
     if not file: return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"})
+    
     try:
-        df = pd.read_excel(file, dtype={'npm': str})
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(file, dtype={'npm': str})
+        elif file.filename.endswith('.xlsx'):
+            df = pd.read_excel(file, dtype={'npm': str})
+        else:
+            return jsonify({"code": 400, "message": "Format file tidak didukung. Harap unggah .xlsx atau .csv"}), 400
+        
+        df.columns = df.columns.str.strip().str.lower()
+
         mahasiswa_collection = current_app.db.mahasiswa
         penilaian_collection = current_app.db.penilaian_mahasiswa
-        all_mahasiswa = {m['npm']: m for m in mahasiswa_collection.find({})}
+        
+        all_mahasiswa_master = {m['npm']: m for m in mahasiswa_collection.find({})}
+        
         operations = []
+        errors = []
         now = datetime.now(timezone.utc)
+
         for index, row in df.iterrows():
             npm = row.get('npm')
-            if npm not in all_mahasiswa:
+            if npm not in all_mahasiswa_master:
+                errors.append(f"Baris {index + 2}: NPM {npm} tidak ditemukan di data mahasiswa (dilewati).")
                 continue
-            mahasiswa_data = all_mahasiswa[npm]
+            mahasiswa_data = all_mahasiswa_master[npm]
             doc = row.to_dict()
             doc['keaktifan_organisasi'] = _calculate_keaktifan(doc)
             doc['nama'] = mahasiswa_data['nama']
@@ -128,16 +142,23 @@ def import_penilaian_from_excel(current_user_id):
                     upsert=True
                 )
             )
-
+        inserted_count = 0
+        updated_count = 0
         if operations:
             result = penilaian_collection.bulk_write(operations)
-            return jsonify({
-                "code": 200, 
-                "message": "Proses impor selesai",
-                "inserted": result.upserted_count,
-                "updated": result.modified_count
-            }), 200
-        return jsonify({"code": 200, "message": "Tidak ada data valid untuk diimpor"})
+            inserted_count = result.upserted_count
+            updated_count = result.modified_count
+        summary_message = f"Proses impor selesai. Berhasil menambahkan {inserted_count} data baru dan memperbarui {updated_count} data."
+
+        return jsonify({
+            "code": 200, 
+            "message": summary_message,
+            "details": {
+                "data_ditambahkan": inserted_count,
+                "data_diperbarui": updated_count,
+                "data_dilewati_errors": errors
+            }
+        }), 200
 
     except Exception as e:
-        return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"})
+        return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"}), 500
