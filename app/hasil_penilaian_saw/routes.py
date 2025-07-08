@@ -64,12 +64,10 @@ def calculate_saw(current_user_id):
         })
     
     # --- Tahap 2: Menentukan Nilai Max untuk Normalisasi Relatif ---
-    # Tambahkan 'or 1' untuk mencegah error jika matriks kosong
     max_c1_relatif = max((item['c1_rated'] for item in matriks_x), default=1)
     max_c2_relatif = max((item['c2_rated'] for item in matriks_x), default=1)
     max_c3_relatif = max((item['c3_rated'] for item in matriks_x), default=1)
     
-    # Nilai Max Absolut/Standar adalah 5
     MAX_STANDAR = 5.0
 
     # --- Tahap 3: Perangkingan dan Penentuan Status ---
@@ -82,27 +80,26 @@ def calculate_saw(current_user_id):
     }
 
     for item_x in matriks_x:
-        # --- Perhitungan SKOR 1: SKOR SAW (untuk Perangkingan Relatif) ---
         r1_relatif = item_x['c1_rated'] / max_c1_relatif
         r2_relatif = item_x['c2_rated'] / max_c2_relatif
         r3_relatif = item_x['c3_rated'] / max_c3_relatif
+        # PERBAIKAN: Menggunakan key 'c1', 'c2', 'c3' sesuai definisi BOBOT_SAW
         skor_akhir_saw = (
             (r1_relatif * BOBOT_SAW['w1']) +
             (r2_relatif * BOBOT_SAW['w2']) +
             (r3_relatif * BOBOT_SAW['w3'])
         )
 
-        # --- Perhitungan SKOR 2: SKOR STANDAR (untuk Evaluasi Absolut) ---
         r1_standar = item_x['c1_rated'] / MAX_STANDAR
         r2_standar = item_x['c2_rated'] / MAX_STANDAR
         r3_standar = item_x['c3_rated'] / MAX_STANDAR
+        # PERBAIKAN: Menggunakan key 'c1', 'c2', 'c3'
         skor_akhir_standar = (
             (r1_standar * BOBOT_SAW['w1']) +
             (r2_standar * BOBOT_SAW['w2']) +
             (r3_standar * BOBOT_SAW['w3'])
         )
         
-        # --- Penentuan Status & Peringatan berdasarkan SKOR STANDAR ---
         status = "Standar Terpenuhi"
         if skor_akhir_standar < 0.7:
             status = "Perlu Peringatan"
@@ -124,14 +121,22 @@ def calculate_saw(current_user_id):
             "status": status
         })
     
-    # --- Tahap 4: Simpan Hasil ke Database (Diurutkan berdasarkan skor SAW untuk perangkingan) ---
+    # --- Tahap 4: Penambahan Ranking dan Penyimpanan Hasil ---
+    # MODIFIKASI DIMULAI DARI SINI
+    
+    # 1. Buat ranking berdasarkan skor SAW (relatif)
     hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
+    for i, item in enumerate(hasil_akhir_sorted):
+        item['ranking'] = i + 1
+
+    # 2. Simpan hasil akhir yang sudah lengkap ke database
     hasil_collection = current_app.db.hasil_penilaian_saw
     hasil_collection.delete_many({})
     if hasil_akhir_sorted:
         hasil_collection.insert_many(hasil_akhir_sorted)
         
     return jsonify({"code": 200, "message": "Perhitungan SAW berhasil dan hasil telah disimpan."}), 200
+
 
 # --- Endpoint untuk Melihat Hasil Perhitungan SAW ---
 @saw_bp.route('/', methods=['GET'])
