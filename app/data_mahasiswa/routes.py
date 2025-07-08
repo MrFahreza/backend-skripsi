@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timezone # Import datetime
 from . import mahasiswa_bp
 from ..utils.decorators import token_required
+import os
 
 # --- Endpoint untuk Menambahkan Mahasiswa (Create) ---
 @mahasiswa_bp.route('/', methods=['POST'])
@@ -74,10 +75,30 @@ def import_from_excel(current_user_id):
         return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
 
     try:
-        df = pd.read_excel(file, dtype={'npm': str})
+        # --- VALIDASI FORMAT FILE ---
+        # 1. Dapatkan ekstensi file
+        filename, file_extension = os.path.splitext(file.filename)
+        # 2. Cek apakah ekstensi diizinkan
+        if file_extension not in ['.xlsx', '.csv']:
+            return jsonify({
+                "code": 400, 
+                "message": f"Format file tidak didukung. Harap unggah file .xlsx atau .csv"
+            }), 400
+
+        # --- MEMBACA FILE SESUAI FORMAT ---
+        # 3. Gunakan fungsi yang tepat berdasarkan ekstensinya
+        if file_extension == '.xlsx':
+            df = pd.read_excel(file, dtype={'npm': str})
+        else: # .csv
+            df = pd.read_csv(file, dtype={'npm': str})
+
+        # --- Sisa logika Anda selanjutnya tidak berubah ---
+        df.columns = df.columns.str.strip().str.lower()
+        
         mahasiswa_collection = current_app.db.mahasiswa
         existing_npm = {m['npm'] for m in mahasiswa_collection.find({}, {'npm': 1})}
         existing_emails = {m['email'] for m in mahasiswa_collection.find({}, {'email': 1})}
+        
         errors = []
         operations = []
         now = datetime.now(timezone.utc)
@@ -87,6 +108,7 @@ def import_from_excel(current_user_id):
             npm = row.get('npm')
             email = row.get('email')
             is_valid_row = True
+            
             if npm in existing_npm:
                 errors.append(f"Baris {index + 2}: NPM {npm} sudah ada di database (dilewati).")
                 is_valid_row = False
@@ -123,7 +145,7 @@ def import_from_excel(current_user_id):
 
         return jsonify({
             "code": 200, 
-            "message": "Proses impor selesai.",
+            "message": f"Proses impor selesai. Berhasil menambahkan {inserted_count} data.",
             "data_berhasil_ditambahkan": inserted_count,
             "catatan_error_data_dilewati": errors
         }), 200
