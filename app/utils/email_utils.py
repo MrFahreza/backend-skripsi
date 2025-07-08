@@ -18,7 +18,7 @@ def send_saw_warning_email(recipient_email, student_name, weak_criteria, mail_co
     Kami informasikan bahwa hasil penilaian kinerja Anda untuk periode ini berada di bawah standar yang ditetapkan (dibawah 70).
 
     Berikut adalah kriteria yang perlu Anda tingkatkan:
-    {criteria_list}
+{criteria_list}
 
     Kami mendorong Anda untuk lebih fokus dan meningkatkan kinerja pada kriteria di atas pada periode selanjutnya.
     Jika Anda memerlukan diskusi lebih lanjut, silakan hubungi bagian kemahasiswaan, Ketua Program Studi atau dosen wali.

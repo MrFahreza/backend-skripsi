@@ -43,7 +43,7 @@ def _get_rating(c1, c2, c3):
 @token_required
 def calculate_saw(current_user_id):
     penilaian_collection = current_app.db.penilaian_mahasiswa
-    mahasiswa_collection = current_app.db.data_mahasiswa
+    mahasiswa_collection = current_app.db.mahasiswa
     
     all_penilaian = list(penilaian_collection.find({}))
     if not all_penilaian:
@@ -105,7 +105,7 @@ def calculate_saw(current_user_id):
             status = "Perlu Peringatan"
             kriteria_lemah = []
             if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
-            if item_x['c2_rated'] <= 2: kriteria_lemah.append("IPK")
+            if item_x['c2_rated'] <= 3: kriteria_lemah.append("IPK")
             if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
             
             if kriteria_lemah:
@@ -167,3 +167,52 @@ def export_saw_results(current_user_id):
         as_attachment=True,
         download_name='hasil_penilaian_saw.xlsx'
     )
+
+# --- Endpoint untuk mengirim peringatan manual ---
+@saw_bp.route('/send-warning/<npm>', methods=['POST'])
+@token_required
+def send_single_warning(current_user_id, npm):
+    mahasiswa_collection = current_app.db.mahasiswa
+    penilaian_collection = current_app.db.penilaian_mahasiswa
+
+    # 1. Ambil data mahasiswa dan data penilaian berdasarkan NPM
+    mahasiswa_data = mahasiswa_collection.find_one({"npm": npm})
+    penilaian_data = penilaian_collection.find_one({"npm": npm})
+
+    if not mahasiswa_data:
+        return jsonify({"code": 404, "message": f"Mahasiswa dengan NPM {npm} tidak ditemukan."}), 404
+    if not penilaian_data:
+        return jsonify({"code": 404, "message": f"Data penilaian untuk NPM {npm} tidak ditemukan."}), 404
+
+    # 2. Identifikasi kriteria yang lemah
+    c1 = penilaian_data.get('keaktifan_organisasi', 0)
+    c2 = penilaian_data.get('ipk', 0)
+    c3 = penilaian_data.get('persentase_kehadiran', 0)
+    r1, r2, r3 = _get_rating(c1, c2, c3)
+
+    kriteria_lemah = []
+    if r1 <= 2: kriteria_lemah.append("Keaktifan Organisasi")
+    if r2 <= 3: kriteria_lemah.append("IPK")
+    if r3 <= 2: kriteria_lemah.append("Persentase Kehadiran")
+
+    # 3. Cek apakah ada kriteria yang lemah untuk dilaporkan
+    if not kriteria_lemah:
+        return jsonify({"code": 200, "message": "Mahasiswa ini tidak memiliki kriteria di bawah standar untuk diperingatkan."}), 200
+        
+    # 4. Kirim email
+    mail_config = {
+        "MAIL_SERVER": current_app.config['MAIL_SERVER'],
+        "MAIL_PORT": current_app.config['MAIL_PORT'],
+        "MAIL_USERNAME": current_app.config['MAIL_USERNAME'],
+        "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
+    }
+    
+    email_sent = send_saw_warning_email(
+        mahasiswa_data['email'], 
+        mahasiswa_data['nama'], 
+        kriteria_lemah, 
+        mail_config
+    )
+
+    if email_sent:
+        return jsonify({"code": 200, "message": f"Email peringatan berhasil dikirim ke {mahasiswa_data['nama']}."}), 200
