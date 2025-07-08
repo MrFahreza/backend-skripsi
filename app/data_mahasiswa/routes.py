@@ -73,26 +73,18 @@ def import_from_excel(current_user_id):
     file = request.files.get('file')
     if not file:
         return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
-
+    
     try:
-        # --- VALIDASI FORMAT FILE ---
-        # 1. Dapatkan ekstensi file
         filename, file_extension = os.path.splitext(file.filename)
-        # 2. Cek apakah ekstensi diizinkan
         if file_extension not in ['.xlsx', '.csv']:
             return jsonify({
                 "code": 400, 
                 "message": f"Format file tidak didukung. Harap unggah file .xlsx atau .csv"
             }), 400
-
-        # --- MEMBACA FILE SESUAI FORMAT ---
-        # 3. Gunakan fungsi yang tepat berdasarkan ekstensinya
         if file_extension == '.xlsx':
             df = pd.read_excel(file, dtype={'npm': str})
-        else: # .csv
+        else:
             df = pd.read_csv(file, dtype={'npm': str})
-
-        # --- Sisa logika Anda selanjutnya tidak berubah ---
         df.columns = df.columns.str.strip().str.lower()
         
         mahasiswa_collection = current_app.db.mahasiswa
