@@ -36,12 +36,12 @@ def add_penilaian(current_user_id):
     if penilaian_collection.find_one({"npm": npm}):
         return jsonify({"code": 409, "message": f"Mahasiswa dengan NPM {npm} sudah memiliki data penilaian"}), 409
 
-    # Hitung skor keaktifan
+    # Menghitung skor keaktifan organisasi
     data['keaktifan_organisasi'] = _calculate_keaktifan(data)
     
     now = datetime.now(timezone.utc)
     
-    # Siapkan dokumen untuk disimpan
+    # Menyiapkan dokumen untuk disimpan
     penilaian_doc = {
         "npm": npm,
         "nama": mahasiswa_data['nama'],
