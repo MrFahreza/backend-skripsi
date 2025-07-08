@@ -35,7 +35,11 @@ def login():
             'iat': datetime.now(timezone.utc),                      # Waktu token dibuat
             'sub': str(admin_in_db['_id'])                          # Subject token (user id)
         }
-        
+        # payload = {
+        #     'exp': datetime.now(timezone.utc) + timedelta(seconds=15), # Expired dalam 15 detik
+        #     'iat': datetime.now(timezone.utc),                         # Waktu token dibuat
+        #     'sub': str(admin_in_db['_id'])                             # Subject token (user id)
+        #     }
         # Generate token
         token = jwt.encode(
             payload,
