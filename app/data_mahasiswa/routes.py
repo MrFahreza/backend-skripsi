@@ -58,19 +58,11 @@ def update_mahasiswa(current_user_id, npm):
 @token_required
 def delete_mahasiswa(current_user_id, npm):
     mahasiswa_collection = current_app.db.mahasiswa
-    penilaian_collection = current_app.db.penilaian_mahasiswa # Siapkan koleksi penilaian
-
-    # 1. Hapus data dari koleksi utama 'mahasiswa'
+    penilaian_collection = current_app.db.penilaian_mahasiswa
     result = mahasiswa_collection.delete_one({"npm": npm})
-
     if result.deleted_count == 0:
         return jsonify({"code": 404, "message": "Data mahasiswa tidak ditemukan"}), 404
-    
-    # 2. MODIFIKASI: Jika berhasil, hapus juga data penilaian terkait
-    # Perintah ini akan menghapus dokumen dengan npm yang sama di koleksi penilaian.
-    # Jika tidak ada data, perintah ini tidak akan melakukan apa-apa (aman).
     penilaian_collection.delete_one({"npm": npm})
-    
     return jsonify({"code": 200, "message": "Data mahasiswa dan data penilaian terkait berhasil dihapus"}), 200
 
 # --- Endpoint untuk Impor dari Excel ---
@@ -78,7 +70,9 @@ def delete_mahasiswa(current_user_id, npm):
 @token_required
 def import_from_excel(current_user_id):
     file = request.files.get('file')
-    if not file: return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"})
+    if not file:
+        return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
+
     try:
         df = pd.read_excel(file, dtype={'npm': str})
         mahasiswa_collection = current_app.db.mahasiswa
@@ -87,33 +81,52 @@ def import_from_excel(current_user_id):
         errors = []
         operations = []
         now = datetime.now(timezone.utc)
+        seen_in_file = {'npm': set(), 'email': set()}
+        
         for index, row in df.iterrows():
             npm = row.get('npm')
             email = row.get('email')
-            if npm in existing_npm: errors.append(f"Baris {index + 2}: NPM {npm} sudah ada.")
-            if email in existing_emails: errors.append(f"Baris {index + 2}: Email {email} sudah ada.")
-            doc = row.to_dict()
-            operations.append(
-                UpdateOne(
-                    {"npm": npm},
-                    {
-                        "$set": {**doc, "updated_at": now},
-                        "$setOnInsert": {"created_at": now}
-                    },
-                    upsert=True
-                )
-            )
+            is_valid_row = True
+            if npm in existing_npm:
+                errors.append(f"Baris {index + 2}: NPM {npm} sudah ada di database (dilewati).")
+                is_valid_row = False
+            if email in existing_emails:
+                errors.append(f"Baris {index + 2}: Email {email} sudah ada di database (dilewati).")
+                is_valid_row = False
+            if npm in seen_in_file['npm']:
+                errors.append(f"Baris {index + 2}: NPM {npm} duplikat di dalam file Excel (dilewati).")
+                is_valid_row = False
+            if email in seen_in_file['email']:
+                errors.append(f"Baris {index + 2}: Email {email} duplikat di dalam file Excel (dilewati).")
+                is_valid_row = False
 
-        if errors:
-            return jsonify({"code": 409, "message": errors}), 409
+            seen_in_file['npm'].add(npm)
+            seen_in_file['email'].add(email)
+
+            if is_valid_row:
+                doc = row.to_dict()
+                operations.append(
+                    UpdateOne(
+                        {"npm": npm},
+                        {
+                            "$set": {**doc, "updated_at": now},
+                            "$setOnInsert": {"_id": npm, "created_at": now}
+                        },
+                        upsert=True
+                    )
+                )
+                
+        inserted_count = 0
         if operations:
             result = mahasiswa_collection.bulk_write(operations)
-            return jsonify({
-                "code": 200, 
-                "message": "Proses impor selesai",
-                "inserted": result.upserted_count,
-                "updated": result.modified_count
-            }), 200
-        return jsonify({"code": 200, "message": "Tidak ada data untuk diimpor"})
+            inserted_count = result.upserted_count
+
+        return jsonify({
+            "code": 200, 
+            "message": "Proses impor selesai.",
+            "data_berhasil_ditambahkan": inserted_count,
+            "catatan_error_data_dilewati": errors
+        }), 200
+
     except Exception as e:
-        return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"})
+        return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"}), 500
