@@ -39,17 +39,16 @@ def _get_rating(c1, c2, c3):
     
     return r1, r2, r3
 
-# --- Endpoint untuk Memicu Perhitungan SAW ---
 @saw_bp.route('/calculate', methods=['POST'])
 @token_required
 def calculate_saw(current_user_id):
     penilaian_collection = current_app.db.penilaian_mahasiswa
     mahasiswa_collection = current_app.db.data_mahasiswa
     
-    # 1. Ambil semua data penilaian yang ada
     all_penilaian = list(penilaian_collection.find({}))
     if not all_penilaian:
         return jsonify({"code": 404, "message": "Tidak ada data penilaian untuk dihitung"}), 404
+
     student_emails = {m['npm']: m['email'] for m in mahasiswa_collection.find({}, {'npm': 1, 'email': 1})}
 
     # --- Tahap 1: Membuat Matriks Keputusan (X) dengan Rating Kecocokan ---
@@ -58,34 +57,22 @@ def calculate_saw(current_user_id):
         c1 = p.get('keaktifan_organisasi', 0)
         c2 = p.get('ipk', 0)
         c3 = p.get('persentase_kehadiran', 0)
-        
         r1, r2, r3 = _get_rating(c1, c2, c3)
-        
         matriks_x.append({
-            "npm": p['npm'],
-            "nama": p['nama'],
-            "c1_rated": r1,
-            "c2_rated": r2,
-            "c3_rated": r3
+            "npm": p['npm'], "nama": p['nama'],
+            "c1_rated": r1, "c2_rated": r2, "c3_rated": r3
         })
     
-    # --- Tahap 2: Normalisasi Matriks ---
-    # Karena semua kriteria adalah benefit, cari nilai MAX dari setiap kolom
-    max_c1 = max(item['c1_rated'] for item in matriks_x)
-    max_c2 = max(item['c2_rated'] for item in matriks_x)
-    max_c3 = max(item['c3_rated'] for item in matriks_x)
+    # --- Tahap 2: Menentukan Nilai Max untuk Normalisasi Relatif ---
+    # Tambahkan 'or 1' untuk mencegah error jika matriks kosong
+    max_c1_relatif = max((item['c1_rated'] for item in matriks_x), default=1)
+    max_c2_relatif = max((item['c2_rated'] for item in matriks_x), default=1)
+    max_c3_relatif = max((item['c3_rated'] for item in matriks_x), default=1)
     
-    matriks_r = []
-    for item in matriks_x:
-        matriks_r.append({
-            "npm": item['npm'],
-            "nama": item['nama'],
-            "r1_normalized": round(item['c1_rated'] / max_c1, 3),
-            "r2_normalized": round(item['c2_rated'] / max_c2, 3),
-            "r3_normalized": round(item['c3_rated'] / max_c3, 3)
-        })
+    # Nilai Max Absolut/Standar adalah 5
+    MAX_STANDAR = 5.0
 
-    # --- Tahap 3: Perangkingan ---
+    # --- Tahap 3: Perangkingan dan Penentuan Status ---
     hasil_akhir = []
     mail_config = {
         "MAIL_SERVER": current_app.config['MAIL_SERVER'],
@@ -94,39 +81,56 @@ def calculate_saw(current_user_id):
         "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
     }
 
-    for i, item_r in enumerate(matriks_r):
-        skor_akhir = (
-            (item_r['r1_normalized'] * BOBOT_SAW['w1']) +
-            (item_r['r2_normalized'] * BOBOT_SAW['w2']) +
-            (item_r['r3_normalized'] * BOBOT_SAW['w3'])
+    for item_x in matriks_x:
+        # --- Perhitungan SKOR 1: SKOR SAW (untuk Perangkingan Relatif) ---
+        r1_relatif = item_x['c1_rated'] / max_c1_relatif
+        r2_relatif = item_x['c2_rated'] / max_c2_relatif
+        r3_relatif = item_x['c3_rated'] / max_c3_relatif
+        skor_akhir_saw = (
+            (r1_relatif * BOBOT_SAW['w1']) +
+            (r2_relatif * BOBOT_SAW['w2']) +
+            (r3_relatif * BOBOT_SAW['w3'])
+        )
+
+        # --- Perhitungan SKOR 2: SKOR STANDAR (untuk Evaluasi Absolut) ---
+        r1_standar = item_x['c1_rated'] / MAX_STANDAR
+        r2_standar = item_x['c2_rated'] / MAX_STANDAR
+        r3_standar = item_x['c3_rated'] / MAX_STANDAR
+        skor_akhir_standar = (
+            (r1_standar * BOBOT_SAW['w1']) +
+            (r2_standar * BOBOT_SAW['w2']) +
+            (r3_standar * BOBOT_SAW['w3'])
         )
         
+        # --- Penentuan Status & Peringatan berdasarkan SKOR STANDAR ---
         status = "Standar Terpenuhi"
-        if skor_akhir < 0.7:
-            status = "Perlu Tindakan dan Peringatan"
+        if skor_akhir_standar < 0.7:
+            status = "Perlu Peringatan"
             kriteria_lemah = []
-            item_x = matriks_x[i]
             if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
             if item_x['c2_rated'] <= 2: kriteria_lemah.append("IPK")
             if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
+            
             if kriteria_lemah:
-                student_email = student_emails.get(item_r['npm'])
+                student_email = student_emails.get(item_x['npm'])
                 if student_email:
-                    send_saw_warning_email(student_email, item_r['nama'], kriteria_lemah, mail_config)
+                    send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, mail_config)
 
         hasil_akhir.append({
-            "npm": item_r['npm'],
-            "nama": item_r['nama'],
-            "skor_akhir_saw": round(skor_akhir, 4),
+            "npm": item_x['npm'],
+            "nama": item_x['nama'],
+            "skor_akhir_saw": round(skor_akhir_saw, 4),
+            "skor_akhir_standar": round(skor_akhir_standar, 4),
             "status": status
         })
     
-    # --- Tahap 4: Simpan Hasil ke Database ---
+    # --- Tahap 4: Simpan Hasil ke Database (Diurutkan berdasarkan skor SAW untuk perangkingan) ---
     hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
     hasil_collection = current_app.db.hasil_penilaian_saw
     hasil_collection.delete_many({})
     if hasil_akhir_sorted:
         hasil_collection.insert_many(hasil_akhir_sorted)
+        
     return jsonify({"code": 200, "message": "Perhitungan SAW berhasil dan hasil telah disimpan."}), 200
 
 # --- Endpoint untuk Melihat Hasil Perhitungan SAW ---
