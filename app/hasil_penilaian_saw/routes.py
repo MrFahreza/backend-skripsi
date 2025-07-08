@@ -39,6 +39,7 @@ def _get_rating(c1, c2, c3):
     
     return r1, r2, r3
 
+# --- Endpoint untuk Melihat Perhitungan Menggunakan Metode SAW ---
 @saw_bp.route('/calculate', methods=['POST'])
 @token_required
 def calculate_saw(current_user_id):
@@ -83,7 +84,6 @@ def calculate_saw(current_user_id):
         r1_relatif = item_x['c1_rated'] / max_c1_relatif
         r2_relatif = item_x['c2_rated'] / max_c2_relatif
         r3_relatif = item_x['c3_rated'] / max_c3_relatif
-        # PERBAIKAN: Menggunakan key 'c1', 'c2', 'c3' sesuai definisi BOBOT_SAW
         skor_akhir_saw = (
             (r1_relatif * BOBOT_SAW['w1']) +
             (r2_relatif * BOBOT_SAW['w2']) +
@@ -93,7 +93,6 @@ def calculate_saw(current_user_id):
         r1_standar = item_x['c1_rated'] / MAX_STANDAR
         r2_standar = item_x['c2_rated'] / MAX_STANDAR
         r3_standar = item_x['c3_rated'] / MAX_STANDAR
-        # PERBAIKAN: Menggunakan key 'c1', 'c2', 'c3'
         skor_akhir_standar = (
             (r1_standar * BOBOT_SAW['w1']) +
             (r2_standar * BOBOT_SAW['w2']) +
@@ -122,14 +121,12 @@ def calculate_saw(current_user_id):
         })
     
     # --- Tahap 4: Penambahan Ranking dan Penyimpanan Hasil ---
-    # MODIFIKASI DIMULAI DARI SINI
-    
-    # 1. Buat ranking berdasarkan skor SAW (relatif)
+    # 1. Membuat ranking berdasarkan hasil perhitungan SAW
     hasil_akhir_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
     for i, item in enumerate(hasil_akhir_sorted):
         item['ranking'] = i + 1
 
-    # 2. Simpan hasil akhir yang sudah lengkap ke database
+    # 2. Menyimpan hasil akhir ke database
     hasil_collection = current_app.db.hasil_penilaian_saw
     hasil_collection.delete_many({})
     if hasil_akhir_sorted:
