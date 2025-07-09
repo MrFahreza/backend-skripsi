@@ -6,6 +6,8 @@ import pandas as pd
 from datetime import datetime, timezone
 from . import penilaian_bp
 from ..utils.decorators import token_required
+import os
+import re
 
 # --- Helper Function untuk Menghitung Keaktifan Organisasi ---
 def _calculate_keaktifan(data):
@@ -104,50 +106,96 @@ def import_penilaian_from_excel(current_user_id):
     if not file: return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"})
     
     try:
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(file, dtype={'npm': str})
-        elif file.filename.endswith('.xlsx'):
-            df = pd.read_excel(file, dtype={'npm': str})
-        else:
+        # 1. Validasi Format File
+        filename, file_extension = os.path.splitext(file.filename)
+        if file_extension not in ['.xlsx', '.csv']:
             return jsonify({"code": 400, "message": "Format file tidak didukung. Harap unggah .xlsx atau .csv"}), 400
         
+        if file_extension == '.xlsx':
+            df = pd.read_excel(file, dtype=str) # Baca semua sebagai string dulu
+        else:
+            df = pd.read_csv(file, dtype=str)
+        
+        # 2. Validasi Urutan dan Nama Kolom
         df.columns = df.columns.str.strip().str.lower()
+        expected_columns = expected_columns = [
+            'npm', 'jabatan_struktur', 'keterlibatan_program_kerja', 
+            'penilaian_kinerja', 'keikutsertaan_lomba', 'ipk', 'persentase_kehadiran'
+        ]
+        if list(df.columns) != expected_columns:
+            return jsonify({
+                "code": 400,
+                "message": f"Format kolom tidak sesuai. Harap gunakan urutan: {', '.join(expected_columns)}"
+            }), 400
 
         mahasiswa_collection = current_app.db.mahasiswa
         penilaian_collection = current_app.db.penilaian_mahasiswa
-        
         all_mahasiswa_master = {m['npm']: m for m in mahasiswa_collection.find({})}
         
         operations = []
         errors = []
         now = datetime.now(timezone.utc)
-
+        
         for index, row in df.iterrows():
+            row_errors = []
+            
+            # --- Validasi Data ---
             npm = row.get('npm')
-            if npm not in all_mahasiswa_master:
-                errors.append(f"Baris {index + 2}: NPM {npm} tidak ditemukan di data mahasiswa (dilewati).")
+            jabatan = row.get('jabatan_struktur')
+            keterlibatan = row.get('keterlibatan_program_kerja')
+            kinerja = row.get('penilaian_kinerja')
+            lomba = row.get('keikutsertaan_lomba')
+            ipk = row.get('ipk')
+            kehadiran = row.get('persentase_kehadiran')
+
+            # Cek NPM ada di data master
+            if not npm or npm not in all_mahasiswa_master:
+                row_errors.append(f"Kolom 'npm' ({npm}) tidak ditemukan di data master mahasiswa.")
+            # Cek format NPM (hanya angka)
+            elif not npm.isdigit():
+                 row_errors.append(f"Kolom 'npm' ({npm}) harus berupa angka.")
+
+            # Cek skor 0-5
+            for col, val in [('jabatan_struktur', jabatan), ('keterlibatan_program_kerja', keterlibatan), ('penilaian_kinerja', kinerja), ('keikutsertaan_lomba', lomba)]:
+                try:
+                    if not (0 <= float(val) <= 5): row_errors.append(f"Kolom '{col}' ({val}) harus antara 0 dan 5.")
+                except (ValueError, TypeError): row_errors.append(f"Kolom '{col}' ({val}) harus berupa angka.")
+            
+            # Cek IPK 0-4
+            try:
+                if not (0 <= float(ipk) <= 4): row_errors.append(f"Kolom 'ipk' ({ipk}) harus antara 0 dan 4.")
+            except (ValueError, TypeError): row_errors.append(f"Kolom 'ipk' ({ipk}) harus berupa angka desimal.")
+
+            # Cek Kehadiran 0-1
+            try:
+                if not (0 <= float(kehadiran) <= 1): row_errors.append(f"Kolom 'persentase_kehadiran' ({kehadiran}) harus antara 0 dan 1.")
+            except (ValueError, TypeError): row_errors.append(f"Kolom 'persentase_kehadiran' ({kehadiran}) harus berupa angka desimal.")
+                
+            if row_errors:
+                errors.append(f"Baris {index + 2}: " + " | ".join(row_errors) + " (dilewati).")
                 continue
-            mahasiswa_data = all_mahasiswa_master[npm]
+            
             doc = row.to_dict()
+            for key in doc:
+                if key != 'npm':
+                    try:
+                        doc[key] = float(doc[key])
+                    except (ValueError, TypeError):
+                        pass
+            
             doc['keaktifan_organisasi'] = _calculate_keaktifan(doc)
-            doc['nama'] = mahasiswa_data['nama']
-            doc['semester'] = mahasiswa_data['semester']
-            operations.append(
-                UpdateOne(
-                    {"npm": npm},
-                    {
-                        "$set": {**doc, "updated_at": now},
-                        "$setOnInsert": {"created_at": now}
-                    },
-                    upsert=True
-                )
-            )
+            doc['nama'] = all_mahasiswa_master[npm]['nama']
+            doc['semester'] = all_mahasiswa_master[npm]['semester']
+            
+            operations.append(UpdateOne({"npm": npm}, {"$set": {**doc, "updated_at": now}, "$setOnInsert": {"created_at": now}}, upsert=True))
+
         inserted_count = 0
         updated_count = 0
         if operations:
             result = penilaian_collection.bulk_write(operations)
             inserted_count = result.upserted_count
             updated_count = result.modified_count
+            
         summary_message = f"Proses impor selesai. Berhasil menambahkan {inserted_count} data baru dan memperbarui {updated_count} data."
 
         return jsonify({
@@ -161,4 +209,9 @@ def import_penilaian_from_excel(current_user_id):
         }), 200
 
     except Exception as e:
-        return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"}), 500
+        print(f"!!! ERROR SAAT IMPORT: {e}")
+        # Berikan pesan yang lebih informatif ke frontend
+        return jsonify({
+            "code": 500, 
+            "message": f"Gagal memproses file. Penyebab: {str(e)}"
+        }), 500
