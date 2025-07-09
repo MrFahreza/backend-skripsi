@@ -5,6 +5,8 @@ from . import saw_bp
 from ..utils.decorators import token_required
 from ..utils.email_utils import send_saw_warning_email
 import numpy as np
+from openpyxl.styles import Font, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
 
 # --- Konfigurasi Bobot Kriteria ---
 BOBOT_SAW = {
@@ -144,24 +146,80 @@ def get_saw_results(current_user_id):
         return jsonify({"code": 404, "message": "Hasil perhitungan belum ada. Silakan picu perhitungan terlebih dahulu."}), 404
     return jsonify({"code": 200, "data": results}), 200
 
-# --- Endpoint untuk export hasil perhitungan kedalam file excel ---
 @saw_bp.route('/export', methods=['GET'])
 @token_required
 def export_saw_results(current_user_id):
     hasil_collection = current_app.db.hasil_penilaian_saw
     results = list(hasil_collection.find({}, {'_id': 0}))
+
     if not results:
         return jsonify({"code": 404, "message": "Tidak ada data hasil perhitungan untuk diekspor."}), 404
+        
     df = pd.DataFrame(results)
+    
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Hasil_SAW')
+        df.to_excel(writer, index=False, sheet_name='Hasil', startrow=2, header=False)
+
+        workbook = writer.book
+        worksheet = writer.sheets['Hasil']
+
+        # Styles Text
+        font_title = Font(name='Times New Roman', size=12, bold=True)
+        font_header = Font(name='Times New Roman', size=12, bold=True)
+        font_data = Font(name='Times New Roman', size=12, bold=False)
+        thin_border = Border(left=Side(style='thin'), 
+                             right=Side(style='thin'), 
+                             top=Side(style='thin'), 
+                             bottom=Side(style='thin'))
+        center_align = Alignment(horizontal='center', vertical='center')
+
+        # =Style Judul Utama
+        worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
+        title_cell = worksheet['A1']
+        title_cell.value = "HASIL AKHIR PENILIAN KINERJA MAHASISWA DENGAN METODE SAW"
+        title_cell.font = font_title
+        title_cell.alignment = center_align
+
+        # Style Header Kolom
+        for col_num, column_title in enumerate(df.columns, 1):
+            cell = worksheet.cell(row=2, column=col_num)
+            cell.value = column_title.replace('_', ' ').title()
+            cell.font = font_header
+            cell.border = thin_border
+            cell.alignment = center_align
+
+        # Style Data dan Border
+        for row in worksheet.iter_rows(min_row=3, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
+            for cell in row:
+                cell.font = font_data
+                cell.border = thin_border
+        
+        # Lebar Kolom
+        for col_num, column_title in enumerate(df.columns, 1):
+            column_letter = get_column_letter(col_num)
+            max_length = len(column_title)
+            for cell in worksheet[column_letter]:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    
+        
+        worksheet.column_dimensions['A'].width = 15
+        worksheet.column_dimensions['B'].width = 35
+
     output.seek(0)
+    
     return send_file(
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name='hasil_penilaian_saw.xlsx'
+        download_name='Hasil Penilaian SAW.xlsx'
     )
 
 # --- Endpoint untuk mengirim peringatan manual ---
