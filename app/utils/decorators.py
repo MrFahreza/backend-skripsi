@@ -20,8 +20,8 @@ def token_required(f):
             data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
             current_user_id = data['sub']
         except jwt.ExpiredSignatureError:
-            return jsonify({"code": 401, "message": "Token telah expired"}), 401
+            return jsonify({"code": 405, "message": "Token telah expired"}), 405
         except jwt.InvalidTokenError:
-            return jsonify({"code": 401, "message": "Token tidak valid"}), 401
+            return jsonify({"code": 405, "message": "Token tidak valid"}), 405
         return f(current_user_id, *args, **kwargs)
     return decorated
