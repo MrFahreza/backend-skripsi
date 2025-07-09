@@ -1,17 +1,13 @@
-# backend/app/__init__.py
-
 import os
 from flask import Flask
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from flask_cors import CORS # 1. IMPORT CORS DI SINI
+from flask_cors import CORS
+from apscheduler.schedulers.background import BackgroundScheduler 
 
 def create_app():
     app = Flask(__name__)
     load_dotenv()
-
-    # 2. TERAPKAN CORS KE APLIKASI ANDA
-    # Ini akan mengizinkan semua domain untuk mengakses API Anda
     CORS(app) 
 
     # --- Muat Konfigurasi ---
@@ -38,5 +34,29 @@ def create_app():
 
     from .hasil_penilaian_saw import saw_bp
     app.register_blueprint(saw_bp)
+
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        from .hasil_penilaian_saw.task import scheduled_saw_task
+        
+        scheduler = BackgroundScheduler(daemon=True, timezone='Asia/Jakarta')
+        
+        # Jadwal #1: Setelah UTS
+        scheduler.add_job(
+            func=scheduled_saw_task,
+            args=[app, "UTS"],
+            trigger='cron',
+            month='7', day='10', hour='0', minute='12'
+        )
+        
+        # Jadwal #2: Setelah UAS
+        scheduler.add_job(
+            func=scheduled_saw_task,
+            args=[app, "UAS"],
+            trigger='cron',
+            month='12', day='1', hour='2', minute='10'
+        )
+        
+        scheduler.start()
+        print("Scheduler untuk perhitungan otomatis telah dimulai.")
 
     return app

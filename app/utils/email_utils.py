@@ -44,3 +44,34 @@ def send_saw_warning_email(recipient_email, student_name, weak_criteria, mail_co
     except Exception as e:
         print(f"Gagal mengirim email peringatan ke {recipient_email}: {e}")
         return False
+
+def send_admin_notification_email(admin_email, period_name, mail_config):
+    """Mengirim email notifikasi ke admin setelah perhitungan otomatis."""
+    subject = f"Notifikasi: Perhitungan SAW Periode {period_name} Selesai"
+    body = f"""
+    Halo Admin,
+
+    Sistem telah berhasil menjalankan perhitungan dan perangkingan SAW secara otomatis untuk periode {period_name}.
+
+    Silakan login ke sistem untuk melihat hasil selengkapnya.
+
+    Terima kasih.
+
+    Sistem Pengawasan Mahasiswa KIP-K (Otomatis)
+    """
+    
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = mail_config['MAIL_USERNAME']
+    msg['To'] = admin_email
+
+    try:
+        with smtplib.SMTP(mail_config['MAIL_SERVER'], mail_config['MAIL_PORT']) as server:
+            server.starttls()
+            server.login(mail_config['MAIL_USERNAME'], mail_config['MAIL_PASSWORD'])
+            server.send_message(msg)
+        print(f"Email notifikasi admin berhasil dikirim ke {admin_email}")
+        return True
+    except Exception as e:
+        print(f"Gagal mengirim email notifikasi admin: {e}")
+        return False
