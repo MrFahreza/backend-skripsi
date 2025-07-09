@@ -5,6 +5,7 @@ from datetime import datetime, timezone # Import datetime
 from . import mahasiswa_bp
 from ..utils.decorators import token_required
 import os
+import re
 
 # --- Endpoint untuk Menambahkan Mahasiswa (Create) ---
 @mahasiswa_bp.route('/', methods=['POST'])
@@ -73,20 +74,27 @@ def import_from_excel(current_user_id):
     file = request.files.get('file')
     if not file:
         return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
-    
+
     try:
+        # 1. Validasi Format File
         filename, file_extension = os.path.splitext(file.filename)
         if file_extension not in ['.xlsx', '.csv']:
-            return jsonify({
-                "code": 400, 
-                "message": f"Format file tidak didukung. Harap unggah file .xlsx atau .csv"
-            }), 400
-        if file_extension == '.xlsx':
-            df = pd.read_excel(file, dtype={'npm': str})
-        else:
-            df = pd.read_csv(file, dtype={'npm': str})
-        df.columns = df.columns.str.strip().str.lower()
+            return jsonify({"code": 400, "message": "Format file tidak didukung. Harap unggah .xlsx atau .csv"}), 400
         
+        if file_extension == '.xlsx':
+            df = pd.read_excel(file, dtype=str) # Baca semua sebagai string dulu
+        else:
+            df = pd.read_csv(file, dtype=str)
+
+        # 2. Validasi Urutan dan Nama Kolom
+        df.columns = df.columns.str.strip().str.lower()
+        expected_columns = ['npm', 'nama', 'email', 'semester']
+        if list(df.columns) != expected_columns:
+            return jsonify({
+                "code": 400,
+                "message": f"Format kolom tidak sesuai. Harap gunakan urutan: {', '.join(expected_columns)}"
+            }), 400
+
         mahasiswa_collection = current_app.db.mahasiswa
         existing_npm = {m['npm'] for m in mahasiswa_collection.find({}, {'npm': 1})}
         existing_emails = {m['email'] for m in mahasiswa_collection.find({}, {'email': 1})}
@@ -96,40 +104,60 @@ def import_from_excel(current_user_id):
         now = datetime.now(timezone.utc)
         seen_in_file = {'npm': set(), 'email': set()}
         
+        # Regex untuk validasi email
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
         for index, row in df.iterrows():
-            npm = row.get('npm')
-            email = row.get('email')
             is_valid_row = True
             
-            if npm in existing_npm:
-                errors.append(f"Baris {index + 2}: NPM {npm} sudah ada di database (dilewati).")
+            npm = row.get('npm')
+            nama = row.get('nama')
+            email = row.get('email')
+            semester = row.get('semester')
+
+            # 3. Validasi Format Data per Baris
+            if not (npm and str(npm).isdigit()):
+                errors.append(f"Baris {index + 2}: Kolom 'npm' harus berupa angka.")
                 is_valid_row = False
-            if email in existing_emails:
-                errors.append(f"Baris {index + 2}: Email {email} sudah ada di database (dilewati).")
-                is_valid_row = False
-            if npm in seen_in_file['npm']:
-                errors.append(f"Baris {index + 2}: NPM {npm} duplikat di dalam file Excel (dilewati).")
-                is_valid_row = False
-            if email in seen_in_file['email']:
-                errors.append(f"Baris {index + 2}: Email {email} duplikat di dalam file Excel (dilewati).")
+            
+            if not (email and re.match(email_regex, str(email))):
+                errors.append(f"Baris {index + 2}: Kolom 'email' tidak memiliki format yang valid.")
                 is_valid_row = False
 
+            try:
+                semester_val = int(semester)
+                if not (1 <= semester_val <= 14):
+                    errors.append(f"Baris {index + 2}: Kolom 'semester' harus bernilai antara 1 dan 14.")
+                    is_valid_row = False
+            except (ValueError, TypeError):
+                errors.append(f"Baris {index + 2}: Kolom 'semester' harus berupa angka.")
+                is_valid_row = False
+
+            # 4. Validasi Duplikasi (jika data valid)
+            if is_valid_row:
+                if npm in existing_npm:
+                    errors.append(f"Baris {index + 2}: NPM {npm} sudah ada di database.")
+                    is_valid_row = False
+                if email in existing_emails:
+                    errors.append(f"Baris {index + 2}: Email {email} sudah ada di database.")
+                    is_valid_row = False
+                if npm in seen_in_file['npm']:
+                    errors.append(f"Baris {index + 2}: NPM {npm} duplikat di dalam file.")
+                    is_valid_row = False
+                if email in seen_in_file['email']:
+                    errors.append(f"Baris {index + 2}: Email {email} duplikat di dalam file.")
+                    is_valid_row = False
+            
+            # Jika ada error apa pun di baris ini, lewati
+            if not is_valid_row:
+                continue
+            
+            # Jika lolos semua validasi, proses data
             seen_in_file['npm'].add(npm)
             seen_in_file['email'].add(email)
+            doc = row.to_dict()
+            operations.append(UpdateOne({"npm": npm}, {"$set": {**doc, "updated_at": now}, "$setOnInsert": {"_id": npm, "created_at": now}}, upsert=True))
 
-            if is_valid_row:
-                doc = row.to_dict()
-                operations.append(
-                    UpdateOne(
-                        {"npm": npm},
-                        {
-                            "$set": {**doc, "updated_at": now},
-                            "$setOnInsert": {"_id": npm, "created_at": now}
-                        },
-                        upsert=True
-                    )
-                )
-                
         inserted_count = 0
         if operations:
             result = mahasiswa_collection.bulk_write(operations)
@@ -144,3 +172,4 @@ def import_from_excel(current_user_id):
 
     except Exception as e:
         return jsonify({"code": 500, "message": f"Gagal memproses file: {e}"}), 500
+
