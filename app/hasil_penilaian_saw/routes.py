@@ -3,16 +3,16 @@ from io import BytesIO
 import pandas as pd
 from . import saw_bp
 from ..utils.decorators import token_required
-from ..utils.email_utils import send_saw_warning_email
+from ..utils.email_utils import send_saw_warning_email, send_saw_congrats_email
 import numpy as np
 from openpyxl.styles import Font, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 
 # --- Konfigurasi Bobot Kriteria ---
 BOBOT_SAW = {
-    "w1": 0.25, # Keaktifan Organisasi
-    "w2": 0.35, # IPK
-    "w3": 0.40  # Persentase Kehadiran
+    "c1": 0.25, # Keaktifan Organisasi
+    "c2": 0.35, # IPK
+    "c3": 0.40  # Persentase Kehadiran
 }
 
 # --- Helper Function untuk Rating Kecocokan ---
@@ -42,19 +42,13 @@ def _get_rating(c1, c2, c3):
     return r1, r2, r3
 
 # --- Proses Inti Perhitungan Simple Additive Weighting ---
-# backend/app/hasil_penilaian_saw/routes.py
-
 def _run_saw_calculation_logic(app):
-    # Konteks dimulai di sini
     with app.app_context():
-        # SEMUA KODE DI BAWAH INI SEKARANG BERADA DI DALAM BLOK 'with'
-        
         penilaian_collection = current_app.db.penilaian_mahasiswa
-        mahasiswa_collection = current_app.db.data_mahasiswa
+        mahasiswa_collection = current_app.db.mahasiswa
         
         all_penilaian = list(penilaian_collection.find({}))
         if not all_penilaian:
-            # Perbaikan kecil: return dictionary, bukan tuple
             return {"success": False, "message": "Tidak ada data penilaian untuk dihitung"}
             
         student_emails = {m['npm']: m['email'] for m in mahasiswa_collection.find({}, {'npm': 1, 'email': 1})}
@@ -86,38 +80,46 @@ def _run_saw_calculation_logic(app):
             "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
         }
 
-        for item_x in matriks_x:
+        # --- MODIFIKASI UTAMA PADA PERULANGAN ---
+        for i, item_x in enumerate(matriks_x):
+            # Dapatkan data penilaian asli yang sesuai
+            original_assessment = all_penilaian[i]
+
             r1_relatif = item_x['c1_rated'] / max_c1_relatif
             r2_relatif = item_x['c2_rated'] / max_c2_relatif
             r3_relatif = item_x['c3_rated'] / max_c3_relatif
             # PERBAIKAN: Gunakan key 'c1', 'c2', 'c3'
             skor_akhir_saw = (
-                (r1_relatif * BOBOT_SAW['w1']) +
-                (r2_relatif * BOBOT_SAW['w2']) +
-                (r3_relatif * BOBOT_SAW['w3'])
+                (r1_relatif * BOBOT_SAW['c1']) +
+                (r2_relatif * BOBOT_SAW['c2']) +
+                (r3_relatif * BOBOT_SAW['c3'])
             )
 
             r1_standar = item_x['c1_rated'] / MAX_STANDAR
             r2_standar = item_x['c2_rated'] / MAX_STANDAR
             r3_standar = item_x['c3_rated'] / MAX_STANDAR
             skor_akhir_standar = (
-                (r1_standar * BOBOT_SAW['w1']) +
-                (r2_standar * BOBOT_SAW['w2']) +
-                (r3_standar * BOBOT_SAW['w3'])
+                (r1_standar * BOBOT_SAW['c1']) +
+                (r2_standar * BOBOT_SAW['c2']) +
+                (r3_standar * BOBOT_SAW['c3'])
             )
             
+            student_email = student_emails.get(item_x['npm'])
             status = "Standar Terpenuhi"
-            if skor_akhir_standar < 0.7:
-                status = "Perlu Peringatan"
-                kriteria_lemah = []
-                if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
-                if item_x['c2_rated'] <= 3: kriteria_lemah.append("IPK")
-                if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
-                
-                if kriteria_lemah:
-                    student_email = student_emails.get(item_x['npm'])
-                    if student_email:
-                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, mail_config)
+            
+            if student_email: # Hanya proses jika email ada
+                if skor_akhir_standar < 0.7:
+                    status = "Perlu Peringatan"
+                    kriteria_lemah = []
+                    if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
+                    if item_x['c2_rated'] <= 3: kriteria_lemah.append("IPK")
+                    if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
+                    
+                    if kriteria_lemah:
+                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config)
+                else:
+                    # Kirim email ucapan selamat jika skor >= 0.7
+                    send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config)
 
             hasil_akhir.append({
                 "npm": item_x['npm'],
@@ -128,6 +130,7 @@ def _run_saw_calculation_logic(app):
             })
         
         # --- Tahap 4: Penambahan Ranking dan Penyimpanan Hasil ---
+        # (Tidak ada perubahan di sini, logika ranking tetap sama)
         hasil_saw_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
         for i, item in enumerate(hasil_saw_sorted):
             item['ranking_saw'] = i + 1
@@ -145,7 +148,7 @@ def _run_saw_calculation_logic(app):
             
         print("LOG: Perhitungan SAW selesai dijalankan oleh helper.")
         return {"success": True, "message": "Perhitungan SAW berhasil"}
-
+    
 # --- Endpoint Untuk Melakukan Perhitungan Menggunakan Metode SAW ---
 @saw_bp.route('/calculate', methods=['POST'])
 @token_required
