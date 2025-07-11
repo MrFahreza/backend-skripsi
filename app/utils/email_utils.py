@@ -16,7 +16,7 @@ def send_saw_warning_email(recipient_email, student_name, weak_criteria, assessm
     body = f"""
     <html>
     <head></head>
-    <body style="font-family: sans-serif;">
+    <body style="font-family: 'Times New Roman', Times, serif; font-size: 18px; color: #333333;">
         <p>Yth. {student_name},</p>
         <p>Kami informasikan bahwa hasil penilaian kinerja Anda untuk periode ini berada di bawah standar yang ditetapkan.<br>
         Berikut adalah rincian penilaian dan kriteria yang perlu Anda tingkatkan:</p>
@@ -63,12 +63,11 @@ def send_saw_warning_email(recipient_email, student_name, weak_criteria, assessm
 def send_saw_congrats_email(recipient_email, student_name, assessment_data, mail_config):
     """Mengirim email ucapan selamat hasil penilaian SAW yang diformat dengan HTML."""
     subject = "Informasi Hasil Penilaian Kinerja Mahasiswa"
-    
-    # --- MODIFIKASI: Buat body email menggunakan tag HTML ---
+
     body = f"""
     <html>
     <head></head>
-    <body style="font-family: sans-serif;">
+    <body style="font-family: 'Times New Roman', Times, serif; font-size: 18px; color: #333333;">
         <p>Yth. {student_name},</p>
         <p><b>Selamat!</b> Hasil penilaian kinerja Anda untuk periode ini telah <b>memenuhi standar</b> yang ditetapkan.<br>
         Terus pertahankan dan tingkatkan prestasi Anda.</p>
@@ -88,7 +87,6 @@ def send_saw_congrats_email(recipient_email, student_name, assessment_data, mail
     </html>
     """
     
-    # --- MODIFIKASI: Kirim email sebagai 'html' ---
     msg = MIMEText(body, 'html')
     msg['Subject'] = subject
     msg['From'] = mail_config['MAIL_USERNAME']
@@ -108,19 +106,24 @@ def send_saw_congrats_email(recipient_email, student_name, assessment_data, mail
 def send_admin_notification_email(admin_email, period_name, mail_config):
     """Mengirim email notifikasi ke admin setelah perhitungan otomatis."""
     subject = f"Notifikasi: Perhitungan SAW Periode {period_name} Selesai"
+    
     body = f"""
-    Halo Admin,
-
-    Sistem telah berhasil menjalankan perhitungan dan perangkingan SAW secara otomatis untuk periode {period_name}.
-
-    Silakan login ke sistem untuk melihat hasil selengkapnya.
-
-    Terima kasih.
-
-    Sistem Pengawasan Mahasiswa KIP-K (Otomatis)
+    <html>
+    <head></head>
+    <body style="font-family: 'Times New Roman', Times, serif; font-size: 18px; color: #333333;">
+        <p>Halo Admin,</p>
+        <p>Sistem telah berhasil menjalankan perhitungan dan perangkingan SAW secara otomatis untuk periode <b>{period_name}</b>.</p>
+        <p>Silakan login ke sistem untuk melihat hasil selengkapnya.</p>
+        <br>
+        <p>Terima kasih.</p>
+        <br>
+        <p><i>Sistem Pengawasan Mahasiswa KIP-K (Notifikasi Otomatis)</i></p>
+    </body>
+    </html>
     """
     
-    msg = MIMEText(body)
+    # --- MODIFIKASI: Kirim email sebagai 'html' ---
+    msg = MIMEText(body, 'html')
     msg['Subject'] = subject
     msg['From'] = mail_config['MAIL_USERNAME']
     msg['To'] = admin_email
