@@ -27,7 +27,7 @@ def _get_rating(c1, c2, c3):
     
     # Rating C2: IPK
     if c2 == 4: r2 = 5
-    elif c2 >= 3: r2 = 4
+    elif c2 >= 2.75: r2 = 4
     elif c2 >= 2: r2 = 3
     elif c2 >= 1: r2 = 2
     else: r2 = 1
