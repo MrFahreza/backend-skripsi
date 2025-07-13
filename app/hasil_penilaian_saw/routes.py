@@ -34,9 +34,9 @@ def _get_rating(c1, c2, c3):
     
     # Rating C3: Persentase Kehadiran (diasumsikan 0-1)
     if c3 >= 1.0: r3 = 5
-    elif c3 >= 0.9: r3 = 4
-    elif c3 >= 0.8: r3 = 3
-    elif c3 >= 0.7: r3 = 2
+    elif c3 >= 0.85: r3 = 4
+    elif c3 >= 0.75: r3 = 3
+    elif c3 >= 0.60: r3 = 2
     else: r3 = 1
     
     return r1, r2, r3
@@ -107,7 +107,7 @@ def _run_saw_calculation_logic(app):
             student_email = student_emails.get(item_x['npm'])
             status = "Standar Terpenuhi"
             
-            if student_email: # Hanya proses jika email ada
+            if student_email:
                 if skor_akhir_standar < 0.7:
                     status = "Perlu Peringatan"
                     kriteria_lemah = []
@@ -118,7 +118,6 @@ def _run_saw_calculation_logic(app):
                     if kriteria_lemah:
                         send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config)
                 else:
-                    # Kirim email ucapan selamat jika skor >= 0.7
                     send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config)
 
             hasil_akhir.append({
@@ -130,7 +129,6 @@ def _run_saw_calculation_logic(app):
             })
         
         # --- Tahap 4: Penambahan Ranking dan Penyimpanan Hasil ---
-        # (Tidak ada perubahan di sini, logika ranking tetap sama)
         hasil_saw_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
         for i, item in enumerate(hasil_saw_sorted):
             item['ranking_saw'] = i + 1

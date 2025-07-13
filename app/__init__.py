@@ -4,6 +4,10 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler 
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask_apscheduler import APScheduler
+
+scheduler = APScheduler()
 
 def create_app():
     app = Flask(__name__)
@@ -22,6 +26,13 @@ def create_app():
     client = MongoClient(MONGO_URI)
     app.db = client['admin_db']
 
+    # --- Scheduler ---
+    if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        scheduler.init_app(app)
+        scheduler.start()
+        print("Scheduler telah dimulai oleh Flask-APScheduler.")
+    app.scheduler = scheduler
+
     # --- Registrasi Blueprint ---
     from .login import login_bp
     app.register_blueprint(login_bp)
@@ -35,28 +46,7 @@ def create_app():
     from .hasil_penilaian_saw import saw_bp
     app.register_blueprint(saw_bp)
 
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-        from .hasil_penilaian_saw.task import scheduled_saw_task
-        
-        scheduler = BackgroundScheduler(daemon=True, timezone='Asia/Jakarta')
-        
-        # Jadwal #1: Setelah UTS
-        scheduler.add_job(
-            func=scheduled_saw_task,
-            args=[app, "UTS"],
-            trigger='cron',
-            month='7', day='10', hour='0', minute='12'
-        )
-        
-        # Jadwal #2: Setelah UAS
-        scheduler.add_job(
-            func=scheduled_saw_task,
-            args=[app, "UAS"],
-            trigger='cron',
-            month='12', day='1', hour='2', minute='10'
-        )
-        
-        scheduler.start()
-        print("Scheduler untuk perhitungan otomatis telah dimulai.")
+    from .pengaturan_jadwal import jadwal_bp
+    app.register_blueprint(jadwal_bp)
 
     return app

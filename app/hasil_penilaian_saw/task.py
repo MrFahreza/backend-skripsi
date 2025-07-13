@@ -3,7 +3,6 @@ from .routes import _run_saw_calculation_logic
 from ..utils.email_utils import send_admin_notification_email
 
 def scheduled_saw_task(app, period_name):
-    """Tugas yang dijalankan scheduler: kalkulasi + notifikasi."""
     print(f"--- Menjalankan Tugas Terjadwal SAW untuk Periode: {period_name} ---")
     
     result = _run_saw_calculation_logic(app)
