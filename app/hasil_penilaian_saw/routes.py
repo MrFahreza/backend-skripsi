@@ -80,15 +80,13 @@ def _run_saw_calculation_logic(app):
             "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
         }
 
-        # --- MODIFIKASI UTAMA PADA PERULANGAN ---
         for i, item_x in enumerate(matriks_x):
-            # Dapatkan data penilaian asli yang sesuai
             original_assessment = all_penilaian[i]
 
             r1_relatif = item_x['c1_rated'] / max_c1_relatif
             r2_relatif = item_x['c2_rated'] / max_c2_relatif
             r3_relatif = item_x['c3_rated'] / max_c3_relatif
-            # PERBAIKAN: Gunakan key 'c1', 'c2', 'c3'
+
             skor_akhir_saw = (
                 (r1_relatif * BOBOT_SAW['c1']) +
                 (r2_relatif * BOBOT_SAW['c2']) +
@@ -288,8 +286,11 @@ def send_single_warning(current_user_id, npm):
         mahasiswa_data['email'], 
         mahasiswa_data['nama'], 
         kriteria_lemah, 
+        penilaian_data,
         mail_config
     )
 
     if email_sent:
         return jsonify({"code": 200, "message": f"Email peringatan berhasil dikirim ke {mahasiswa_data['nama']}."}), 200
+    else:
+        return jsonify({"code": 500, "message": "Gagal mengirim email peringatan."}), 500
