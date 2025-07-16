@@ -126,7 +126,6 @@ def send_admin_notification_email(admin_email, period_name, mail_config):
     </html>
     """
     
-    # --- MODIFIKASI: Kirim email sebagai 'html' ---
     msg = MIMEText(body, 'html')
     msg['Subject'] = subject
     msg['From'] = mail_config['MAIL_USERNAME']
