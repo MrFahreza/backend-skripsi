@@ -79,9 +79,9 @@ def scheduled_saw_task(period_name, job_id):
                 if item_x['c2_rated'] <= 3: kriteria_lemah.append("IPK")
                 if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
                 if kriteria_lemah:
-                    send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config)
+                    send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config, period_name)
             else:
-                send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config)
+                send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config, period_name)
 
         hasil_akhir.append({
             "npm": item_x['npm'], "nama": item_x['nama'],

@@ -114,9 +114,9 @@ def _run_saw_calculation_logic(app):
                     if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
                     
                     if kriteria_lemah:
-                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config)
+                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config, "")
                 else:
-                    send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config)
+                    send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config, "")
 
             hasil_akhir.append({
                 "npm": item_x['npm'],
@@ -287,7 +287,8 @@ def send_single_warning(current_user_id, npm):
         mahasiswa_data['nama'], 
         kriteria_lemah, 
         penilaian_data,
-        mail_config
+        mail_config,
+        ""
     )
 
     if email_sent:
