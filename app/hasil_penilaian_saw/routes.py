@@ -42,7 +42,7 @@ def _get_rating(c1, c2, c3):
     return r1, r2, r3
 
 # --- Proses Inti Perhitungan Simple Additive Weighting ---
-def _run_saw_calculation_logic(app):
+def _run_saw_calculation_logic(app, period_name="Manual"):
     with app.app_context():
         penilaian_collection = current_app.db.penilaian_mahasiswa
         mahasiswa_collection = current_app.db.mahasiswa
@@ -114,13 +114,16 @@ def _run_saw_calculation_logic(app):
                     if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
                     
                     if kriteria_lemah:
-                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config, "")
+                        send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config, "ini")
                 else:
-                    send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config, "")
+                    send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config, "ini")
 
             hasil_akhir.append({
                 "npm": item_x['npm'],
                 "nama": item_x['nama'],
+                "c1_normalized": round(r1_relatif, 3),
+                "c2_normalized": round(r2_relatif, 3),
+                "c3_normalized": round(r3_relatif, 3),
                 "skor_akhir_saw": round(skor_akhir_saw, 4),
                 "skor_akhir_standar": round(skor_akhir_standar, 4),
                 "status": status
