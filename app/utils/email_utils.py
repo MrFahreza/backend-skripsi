@@ -35,7 +35,7 @@ def send_saw_warning_email(recipient_email, student_name, weak_criteria, assessm
             </ul>
 
             <p>Kami mendorong Anda untuk lebih fokus dan meningkatkan kinerja pada kriteria di atas pada periode selanjutnya.<br>
-            Jika Anda memerlukan diskusi lebih lanjut, silakan hubungi bagian kemahasiswaan.</p>
+            Jika Anda memerlukan diskusi lebih lanjut, silakan hubungi Dosen Wali, KAPRODI, atau Bagian Kemahasiswaan.</p>
             
             <p>Terima kasih atas perhatian Anda.</p>
             <br>
