@@ -75,7 +75,7 @@ def scheduled_saw_task(period_name, job_id):
             if skor_akhir_standar < 0.7:
                 status = "Perlu Peringatan"
                 kriteria_lemah = []
-                if item_x['c1_rated'] <= 2: kriteria_lemah.append("Keaktifan Organisasi")
+                if item_x['c1_rated'] <= 3: kriteria_lemah.append("Keaktifan Organisasi")
                 if item_x['c2_rated'] <= 4: kriteria_lemah.append("IPK")
                 if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
                 if kriteria_lemah:
