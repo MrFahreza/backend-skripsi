@@ -30,18 +30,31 @@ def add_penilaian(current_user_id):
 
     if not npm:
         return jsonify({"code": 400, "message": "NPM mahasiswa dibutuhkan"}), 400
+    
     mahasiswa_collection = current_app.db.mahasiswa
     penilaian_collection = current_app.db.penilaian_mahasiswa
     mahasiswa_data = mahasiswa_collection.find_one({"npm": npm})
+    
     if not mahasiswa_data:
         return jsonify({"code": 404, "message": f"Mahasiswa dengan NPM {npm} tidak ditemukan"}), 404
     if penilaian_collection.find_one({"npm": npm}):
         return jsonify({"code": 409, "message": f"Mahasiswa dengan NPM {npm} sudah memiliki data penilaian"}), 409
 
-    # Menghitung skor keaktifan organisasi
-    data['keaktifan_organisasi'] = _calculate_keaktifan(data)
-    
-    now = datetime.now(timezone.utc)
+    # --- PERUBAHAN UTAMA: Konversi dan Validasi Persentase Kehadiran ---
+    kehadiran_input = data.get('persentase_kehadiran')
+    kehadiran_final = 0.0 # Nilai default jika tidak diisi
+
+    if kehadiran_input is not None:
+        try:
+            kehadiran_float = float(kehadiran_input)
+            # Validasi rentang nilai harus 0-100
+            if not (0 <= kehadiran_float <= 100):
+                return jsonify({"code": 400, "message": "Persentase kehadiran harus bernilai antara 0 dan 100."}), 400
+            # Konversi dari skala 0-100 ke 0-1
+            kehadiran_final = kehadiran_float / 100.0
+        except (ValueError, TypeError):
+            return jsonify({"code": 400, "message": "Persentase kehadiran harus berupa angka."}), 400
+    # -----------------------------------------------------------------
     
     # Menyiapkan dokumen untuk disimpan
     penilaian_doc = {
@@ -52,12 +65,14 @@ def add_penilaian(current_user_id):
         "keterlibatan_program_kerja": data.get('keterlibatan_program_kerja'),
         "penilaian_kinerja": data.get('penilaian_kinerja'),
         "keikutsertaan_lomba": data.get('keikutsertaan_lomba'),
-        "keaktifan_organisasi": data['keaktifan_organisasi'],
         "ipk": data.get('ipk'),
-        "persentase_kehadiran": data.get('persentase_kehadiran'),
-        "created_at": now,
-        "updated_at": now
+        "persentase_kehadiran": kehadiran_final, # Simpan nilai yang sudah dikonversi
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc)
     }
+    
+    # Hitung skor keaktifan organisasi menggunakan data yang sudah lengkap
+    penilaian_doc['keaktifan_organisasi'] = _calculate_keaktifan(penilaian_doc)
 
     penilaian_collection.insert_one(penilaian_doc)
     return jsonify({"code": 201, "message": "Data penilaian berhasil ditambahkan"}), 201
@@ -77,11 +92,33 @@ def get_all_penilaian(current_user_id):
 @token_required
 def update_penilaian(current_user_id, npm):
     data = request.get_json()
+
+    # --- PERUBAHAN: Konversi dan Validasi Persentase Kehadiran ---
+    # Cek apakah field ini ada di dalam data yang dikirim untuk di-update
+    if 'persentase_kehadiran' in data:
+        kehadiran_input = data.get('persentase_kehadiran')
+        if kehadiran_input is not None:
+            try:
+                kehadiran_float = float(kehadiran_input)
+                # Validasi rentang nilai harus 0-100
+                if not (0 <= kehadiran_float <= 100):
+                    return jsonify({"code": 400, "message": "Persentase kehadiran harus bernilai antara 0 dan 100."}), 400
+                
+                # Update dictionary 'data' dengan nilai yang sudah dikonversi
+                data['persentase_kehadiran'] = kehadiran_float / 100.0
+            except (ValueError, TypeError):
+                return jsonify({"code": 400, "message": "Persentase kehadiran harus berupa angka."}), 400
+    # -----------------------------------------------------------------
+
     penilaian_collection = current_app.db.penilaian_mahasiswa
     existing_data = penilaian_collection.find_one({"npm": npm})
     if not existing_data:
         return jsonify({"code": 404, "message": "Data penilaian tidak ditemukan"}), 404
+    
+    # Gabungkan data lama dengan data baru yang sudah divalidasi/dikonversi
     updated_data = {**existing_data, **data}
+    
+    # Hitung ulang keaktifan dan set waktu update
     data['keaktifan_organisasi'] = _calculate_keaktifan(updated_data)
     data['updated_at'] = datetime.now(timezone.utc)
 
@@ -107,7 +144,7 @@ def import_penilaian_from_excel(current_user_id):
         return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
 
     try:
-        # --- Tahap 1: Validasi File dan Membaca Data ---
+        # --- Tahap 1: Validasi File dan Header ---
         filename, file_extension = os.path.splitext(file.filename)
         if file_extension not in ['.xlsx', '.csv']:
             return jsonify({"code": 400, "message": "Format file tidak didukung. Harap unggah .xlsx atau .csv"}), 400
@@ -117,21 +154,17 @@ def import_penilaian_from_excel(current_user_id):
         else:
             df = pd.read_csv(file, dtype=str)
 
-        # Bersihkan nama kolom
         df.columns = df.columns.str.strip().str.lower()
         
-        # --- Tahap 2: Validasi Nama Kolom (Fleksibel) ---
         actual_columns = set(df.columns)
         all_possible_columns = {
             'npm', 'jabatan_struktur', 'keterlibatan_program_kerja',
             'penilaian_kinerja', 'keikutsertaan_lomba', 'ipk', 'persentase_kehadiran'
         }
 
-        # Validasi 1: Kolom 'npm' wajib ada.
         if 'npm' not in actual_columns:
             return jsonify({"code": 400, "message": "File yang diunggah harus memiliki kolom 'npm'."}), 400
 
-        # Validasi 2: Cek apakah ada nama kolom yang tidak dikenal.
         unknown_columns = actual_columns - all_possible_columns
         if unknown_columns:
             return jsonify({
@@ -147,7 +180,7 @@ def import_penilaian_from_excel(current_user_id):
         errors = []
         now = datetime.now(timezone.utc)
 
-        # --- Tahap 3: Validasi dan Penggabungan Data per Baris ---
+        # --- Tahap 2: Validasi dan Penggabungan Data per Baris ---
         for index, row in df.iterrows():
             row_errors = []
             npm = row.get('npm')
@@ -157,19 +190,21 @@ def import_penilaian_from_excel(current_user_id):
                 continue
 
             update_payload = {}
-            # Iterasi hanya pada kolom yang ada di file
             for col in actual_columns:
                 if col != 'npm' and pd.notna(row.get(col)) and str(row.get(col)).strip() != '':
                     val_str = str(row.get(col))
                     try:
                         val_float = float(val_str)
-                        # Validasi rentang nilai
+                        
                         if col in ['jabatan_struktur', 'keterlibatan_program_kerja', 'penilaian_kinerja', 'keikutsertaan_lomba'] and not (0 <= val_float <= 5):
                             row_errors.append(f"Kolom '{col}' ({val_str}) harus antara 0 dan 5.")
                         elif col == 'ipk' and not (0 <= val_float <= 4):
                             row_errors.append(f"Kolom 'ipk' ({val_str}) harus antara 0 dan 4.")
-                        elif col == 'persentase_kehadiran' and not (0 <= val_float <= 1):
-                             row_errors.append(f"Kolom 'persentase_kehadiran' ({val_str}) harus antara 0 dan 1.")
+                        elif col == 'persentase_kehadiran':
+                            if not (0 <= val_float <= 100):
+                                row_errors.append(f"Kolom 'persentase_kehadiran' ({val_str}) harus antara 0 dan 100.")
+                            else:
+                                update_payload[col] = val_float / 100.0 # Konversi ke 0-1
                         else:
                             update_payload[col] = val_float
                     except (ValueError, TypeError):
@@ -199,7 +234,7 @@ def import_penilaian_from_excel(current_user_id):
 
             operations.append(UpdateOne({"npm": npm}, {"$set": final_doc, "$setOnInsert": {"created_at": now}}, upsert=True))
 
-        # --- Tahap 4: Eksekusi Database dan Kirim Respons ---
+        # --- Tahap 3: Eksekusi Database dan Kirim Respons ---
         inserted_count = 0
         updated_count = 0
         if operations:
