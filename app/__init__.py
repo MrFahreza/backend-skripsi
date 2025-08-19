@@ -10,7 +10,12 @@ scheduler = APScheduler()
 
 def create_app(init_scheduler=True):
     app = Flask(__name__)
-    CORS(app) 
+    origins = [
+    "https://pengawasan-kip.netlify.app",
+    "http://127.0.0.1:5500", # Untuk development lokal (jika masih perlu)
+    "http://localhost:5500"  # Alternatif untuk local development
+    ]
+    CORS(app, resources={r"/*": {"origins": origins}})
     load_dotenv()
     
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')

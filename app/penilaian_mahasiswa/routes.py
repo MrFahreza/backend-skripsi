@@ -103,92 +103,103 @@ def delete_penilaian(current_user_id, npm):
 @token_required
 def import_penilaian_from_excel(current_user_id):
     file = request.files.get('file')
-    if not file: return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"})
-    
+    if not file:
+        return jsonify({"code": 400, "message": "Tidak ada file yang diunggah"}), 400
+
     try:
-        # 1. Validasi Format File
+        # --- Tahap 1: Validasi File dan Membaca Data ---
         filename, file_extension = os.path.splitext(file.filename)
         if file_extension not in ['.xlsx', '.csv']:
             return jsonify({"code": 400, "message": "Format file tidak didukung. Harap unggah .xlsx atau .csv"}), 400
-        
+
         if file_extension == '.xlsx':
-            df = pd.read_excel(file, dtype=str) # Baca semua sebagai string dulu
+            df = pd.read_excel(file, dtype=str)
         else:
             df = pd.read_csv(file, dtype=str)
-        
-        # 2. Validasi Urutan dan Nama Kolom
+
+        # Bersihkan nama kolom
         df.columns = df.columns.str.strip().str.lower()
-        expected_columns = expected_columns = [
-            'npm', 'jabatan_struktur', 'keterlibatan_program_kerja', 
+        
+        # --- Tahap 2: Validasi Nama Kolom (Fleksibel) ---
+        actual_columns = set(df.columns)
+        all_possible_columns = {
+            'npm', 'jabatan_struktur', 'keterlibatan_program_kerja',
             'penilaian_kinerja', 'keikutsertaan_lomba', 'ipk', 'persentase_kehadiran'
-        ]
-        if list(df.columns) != expected_columns:
+        }
+
+        # Validasi 1: Kolom 'npm' wajib ada.
+        if 'npm' not in actual_columns:
+            return jsonify({"code": 400, "message": "File yang diunggah harus memiliki kolom 'npm'."}), 400
+
+        # Validasi 2: Cek apakah ada nama kolom yang tidak dikenal.
+        unknown_columns = actual_columns - all_possible_columns
+        if unknown_columns:
             return jsonify({
                 "code": 400,
-                "message": f"Format kolom tidak sesuai. Harap gunakan urutan: {', '.join(expected_columns)}"
+                "message": f"Ditemukan nama kolom yang tidak dikenal: {', '.join(unknown_columns)}"
             }), 400
 
         mahasiswa_collection = current_app.db.mahasiswa
         penilaian_collection = current_app.db.penilaian_mahasiswa
         all_mahasiswa_master = {m['npm']: m for m in mahasiswa_collection.find({})}
-        
+
         operations = []
         errors = []
         now = datetime.now(timezone.utc)
-        
+
+        # --- Tahap 3: Validasi dan Penggabungan Data per Baris ---
         for index, row in df.iterrows():
             row_errors = []
-            
-            # --- Validasi Data ---
             npm = row.get('npm')
-            jabatan = row.get('jabatan_struktur')
-            keterlibatan = row.get('keterlibatan_program_kerja')
-            kinerja = row.get('penilaian_kinerja')
-            lomba = row.get('keikutsertaan_lomba')
-            ipk = row.get('ipk')
-            kehadiran = row.get('persentase_kehadiran')
 
-            # Cek NPM ada di data master
-            if not npm or npm not in all_mahasiswa_master:
-                row_errors.append(f"Kolom 'npm' ({npm}) tidak ditemukan di data master mahasiswa.")
-            # Cek format NPM (hanya angka)
-            elif not npm.isdigit():
-                 row_errors.append(f"Kolom 'npm' ({npm}) harus berupa angka.")
-
-            # Cek skor 0-5
-            for col, val in [('jabatan_struktur', jabatan), ('keterlibatan_program_kerja', keterlibatan), ('penilaian_kinerja', kinerja), ('keikutsertaan_lomba', lomba)]:
-                try:
-                    if not (0 <= float(val) <= 5): row_errors.append(f"Kolom '{col}' ({val}) harus antara 0 dan 5.")
-                except (ValueError, TypeError): row_errors.append(f"Kolom '{col}' ({val}) harus berupa angka.")
-            
-            # Cek IPK 0-4
-            try:
-                if not (0 <= float(ipk) <= 4): row_errors.append(f"Kolom 'ipk' ({ipk}) harus antara 0 dan 4.")
-            except (ValueError, TypeError): row_errors.append(f"Kolom 'ipk' ({ipk}) harus berupa angka desimal.")
-
-            # Cek Kehadiran 0-1
-            try:
-                if not (0 <= float(kehadiran) <= 1): row_errors.append(f"Kolom 'persentase_kehadiran' ({kehadiran}) harus antara 0 dan 1.")
-            except (ValueError, TypeError): row_errors.append(f"Kolom 'persentase_kehadiran' ({kehadiran}) harus berupa angka desimal.")
-                
-            if row_errors:
-                errors.append(f"Baris {index + 2}: " + " | ".join(row_errors) + " (dilewati).")
+            if not npm or not npm.isdigit() or npm not in all_mahasiswa_master:
+                errors.append(f"Baris {index + 2}: NPM '{npm}' tidak valid atau tidak ditemukan (dilewati).")
                 continue
-            
-            doc = row.to_dict()
-            for key in doc:
-                if key != 'npm':
-                    try:
-                        doc[key] = float(doc[key])
-                    except (ValueError, TypeError):
-                        pass
-            
-            doc['keaktifan_organisasi'] = _calculate_keaktifan(doc)
-            doc['nama'] = all_mahasiswa_master[npm]['nama']
-            doc['semester'] = all_mahasiswa_master[npm]['semester']
-            
-            operations.append(UpdateOne({"npm": npm}, {"$set": {**doc, "updated_at": now}, "$setOnInsert": {"created_at": now}}, upsert=True))
 
+            update_payload = {}
+            # Iterasi hanya pada kolom yang ada di file
+            for col in actual_columns:
+                if col != 'npm' and pd.notna(row.get(col)) and str(row.get(col)).strip() != '':
+                    val_str = str(row.get(col))
+                    try:
+                        val_float = float(val_str)
+                        # Validasi rentang nilai
+                        if col in ['jabatan_struktur', 'keterlibatan_program_kerja', 'penilaian_kinerja', 'keikutsertaan_lomba'] and not (0 <= val_float <= 5):
+                            row_errors.append(f"Kolom '{col}' ({val_str}) harus antara 0 dan 5.")
+                        elif col == 'ipk' and not (0 <= val_float <= 4):
+                            row_errors.append(f"Kolom 'ipk' ({val_str}) harus antara 0 dan 4.")
+                        elif col == 'persentase_kehadiran' and not (0 <= val_float <= 1):
+                             row_errors.append(f"Kolom 'persentase_kehadiran' ({val_str}) harus antara 0 dan 1.")
+                        else:
+                            update_payload[col] = val_float
+                    except (ValueError, TypeError):
+                        row_errors.append(f"Kolom '{col}' ({val_str}) harus berupa angka.")
+            
+            if row_errors:
+                errors.append(f"Baris {index + 2} (NPM: {npm}): " + " | ".join(row_errors) + " (dilewati).")
+                continue
+
+            if not update_payload:
+                continue
+
+            existing_assessment = penilaian_collection.find_one({"npm": npm}) or {}
+            merged_data = {**existing_assessment, **update_payload}
+            merged_data['keaktifan_organisasi'] = _calculate_keaktifan(merged_data)
+            
+            final_doc = {
+                "npm": npm, "nama": all_mahasiswa_master[npm]['nama'], "semester": all_mahasiswa_master[npm]['semester'],
+                "jabatan_struktur": merged_data.get('jabatan_struktur', 0.0),
+                "keterlibatan_program_kerja": merged_data.get('keterlibatan_program_kerja', 0.0),
+                "penilaian_kinerja": merged_data.get('penilaian_kinerja', 0.0),
+                "keikutsertaan_lomba": merged_data.get('keikutsertaan_lomba', 0.0),
+                "keaktifan_organisasi": merged_data.get('keaktifan_organisasi', 0.0),
+                "ipk": merged_data.get('ipk', 0.0),
+                "persentase_kehadiran": merged_data.get('persentase_kehadiran', 0.0)
+            }
+
+            operations.append(UpdateOne({"npm": npm}, {"$set": final_doc, "$setOnInsert": {"created_at": now}}, upsert=True))
+
+        # --- Tahap 4: Eksekusi Database dan Kirim Respons ---
         inserted_count = 0
         updated_count = 0
         if operations:
@@ -199,19 +210,13 @@ def import_penilaian_from_excel(current_user_id):
         summary_message = f"Proses impor selesai. Berhasil menambahkan {inserted_count} data baru dan memperbarui {updated_count} data."
 
         return jsonify({
-            "code": 200, 
-            "message": summary_message,
+            "code": 200, "message": summary_message,
             "details": {
-                "data_ditambahkan": inserted_count,
-                "data_diperbarui": updated_count,
+                "data_ditambahkan": inserted_count, "data_diperbarui": updated_count,
                 "data_dilewati_errors": errors
             }
         }), 200
 
     except Exception as e:
         print(f"!!! ERROR SAAT IMPORT: {e}")
-        # Berikan pesan yang lebih informatif ke frontend
-        return jsonify({
-            "code": 500, 
-            "message": f"Gagal memproses file. Penyebab: {str(e)}"
-        }), 500
+        return jsonify({"code": 500, "message": f"Gagal memproses file. Penyebab: {str(e)}"}), 500
