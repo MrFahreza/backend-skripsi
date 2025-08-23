@@ -204,7 +204,7 @@ def import_penilaian_from_excel(current_user_id):
                             if not (0 <= val_float <= 100):
                                 row_errors.append(f"Kolom 'persentase_kehadiran' ({val_str}) harus antara 0 dan 100.")
                             else:
-                                update_payload[col] = val_float / 100.0 # Konversi ke 0-1
+                                update_payload[col] = round(val_float / 100.0, 3) # Konversi ke 0-1
                         else:
                             update_payload[col] = val_float
                     except (ValueError, TypeError):
