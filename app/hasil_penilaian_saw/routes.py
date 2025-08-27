@@ -51,9 +51,10 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
         if not all_penilaian:
             return {"success": False, "message": "Tidak ada data penilaian untuk dihitung"}
             
+        # --- Mengambil Data Penilaian Mahasiswa ---
         student_emails = {m['npm']: m['email'] for m in mahasiswa_collection.find({}, {'npm': 1, 'email': 1})}
 
-        # --- Tahap 1: Membuat Matriks Keputusan (X) ---
+        # --- Membuat Matriks Keputusan Data ---
         matriks_x = []
         for p in all_penilaian:
             c1 = p.get('keaktifan_organisasi', 0)
@@ -65,13 +66,12 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
                 "c1_rated": r1, "c2_rated": r2, "c3_rated": r3
             })
         
-        # --- Tahap 2: Menentukan Nilai Max ---
+        # --- Menentukan Nilai Max ---
         max_c1_relatif = max((item['c1_rated'] for item in matriks_x), default=1)
         max_c2_relatif = max((item['c2_rated'] for item in matriks_x), default=1)
         max_c3_relatif = max((item['c3_rated'] for item in matriks_x), default=1)
         MAX_STANDAR = 5.0
 
-        # --- Tahap 3: Perangkingan dan Penentuan Status ---
         hasil_akhir = []
         mail_config = {
             "MAIL_SERVER": current_app.config['MAIL_SERVER'],
@@ -80,9 +80,11 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
             "MAIL_PASSWORD": current_app.config['MAIL_PASSWORD']
         }
 
+        
         for i, item_x in enumerate(matriks_x):
             original_assessment = all_penilaian[i]
 
+            # --- Normalisasi dan menghitung skor akhir SAW ---
             r1_relatif = item_x['c1_rated'] / max_c1_relatif
             r2_relatif = item_x['c2_rated'] / max_c2_relatif
             r3_relatif = item_x['c3_rated'] / max_c3_relatif
@@ -93,6 +95,7 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
                 (r3_relatif * BOBOT_SAW['c3'])
             )
 
+            # --- Normalisasi dan menghitung skor akhir Standar ---
             r1_standar = item_x['c1_rated'] / MAX_STANDAR
             r2_standar = item_x['c2_rated'] / MAX_STANDAR
             r3_standar = item_x['c3_rated'] / MAX_STANDAR
@@ -105,6 +108,7 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
             student_email = student_emails.get(item_x['npm'])
             status = "Standar Terpenuhi"
             
+            # --- Menentukan status peringatan <0.7 ---
             if student_email:
                 if skor_akhir_standar < 0.7:
                     status = "Perlu Peringatan"
@@ -113,11 +117,14 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
                     if item_x['c2_rated'] < 4: kriteria_lemah.append("IPK")
                     if item_x['c3_rated'] <= 2: kriteria_lemah.append("Persentase Kehadiran")
                     
+                    # --- Mengirimkan email peringatan ---
                     if kriteria_lemah:
                         send_saw_warning_email(student_email, item_x['nama'], kriteria_lemah, original_assessment, mail_config, "ini")
                 else:
+                    # --- Mengirimkan email ucapan selamat ---
                     send_saw_congrats_email(student_email, item_x['nama'], original_assessment, mail_config, "ini")
 
+            # --- Menyimpan hasil data array data sementara
             hasil_akhir.append({
                 "npm": item_x['npm'],
                 "nama": item_x['nama'],
@@ -129,7 +136,7 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
                 "status": status
             })
         
-        # --- Tahap 4: Penambahan Ranking dan Penyimpanan Hasil ---
+        # --- Mengurutkan hasil data perhitungan ---
         hasil_saw_sorted = sorted(hasil_akhir, key=lambda x: x['skor_akhir_saw'], reverse=True)
         for i, item in enumerate(hasil_saw_sorted):
             item['ranking_saw'] = i + 1
@@ -140,11 +147,14 @@ def _run_saw_calculation_logic(app, period_name="Manual"):
         for item in hasil_saw_sorted:
             item['ranking_standar'] = standar_rank_map.get(item['npm'])
 
+        # --- Menghapus data hasil perhitungan yang lama dari database ---
         hasil_collection = current_app.db.hasil_penilaian_saw
         hasil_collection.delete_many({})
         if hasil_saw_sorted:
+            # --- Menyimpan data hasil perhitungan yang baru ke database
             hasil_collection.insert_many(hasil_saw_sorted)
             
+        # --- Menampilkan notifikasi perthiungan SAW berhasil dilakukan
         print("LOG: Perhitungan SAW selesai dijalankan oleh helper.")
         return {"success": True, "message": "Perhitungan SAW berhasil"}
     
